@@ -1,0 +1,89 @@
+# Holzmann's Power of Ten, rule 10 (all warnings on, zero findings): every
+# linter here enforces one of the ten rules, runs at
+# zero findings, and nothing is suppressed in source (no //nolint, ever).
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags:
+    - softmagic_assert
+
+linters:
+  default: standard
+  enable:
+    - depguard         # rule 8: standard library and this module only
+    - errcheck         # rule 7: every return value checked (check-blank on)
+    - errorlint
+    - exhaustive       # rule 9: enum switches complete
+    - forbidigo        # rule 5: panic only in the assertion helper; rule 1: no recover
+    - funlen           # rule 4: one page per function
+    - gochecknoglobals # rule 6: no package-level mutable state
+    - gochecknoinits   # rule 6: no init()
+    - gocritic
+    - gocognit         # rule 1: simple control flow (cognitive complexity: nesting, not case count)
+    - gosec
+    - ineffassign
+    - nilerr
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+  settings:
+    errcheck:
+      check-blank: true
+      check-type-assertions: true
+      exclude-functions: []
+    funlen:
+      lines: 60
+      statements: 40
+      ignore-comments: true
+    gocognit:
+      min-complexity: 15
+    govet:
+      enable-all: true
+    exhaustive:
+      # A switch with a default branch is complete by construction; the type
+      # dispatch switches that must grow with the grammar have none.
+      default-signifies-exhaustive: true
+    depguard:
+      rules:
+        main:
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/eitanity/softmagic
+          deny:
+            - pkg: unsafe
+              desc: "unsafe is not used (Power of Ten rule 8)"
+            - pkg: reflect
+              desc: "reflect is not used (Power of Ten rule 8)"
+            - pkg: os/exec
+              desc: "the library runs no processes"
+            - pkg: net
+              desc: "the library has no network access"
+            - pkg: syscall
+              desc: "syscall is not used (Power of Ten rule 8)"
+    forbidigo:
+      forbid:
+        - pattern: '^panic$'
+          msg: "the only panic is in internal/invariant (Power of Ten rule 5)"
+        - pattern: '^recover$'
+          msg: "recover is not control flow (Power of Ten rule 1)"
+      analyze-types: true
+  exclusions:
+    rules:
+      # The assertion helper is the one permitted panic site.
+      - path: 'internal/invariant/assert\.go'
+        linters: [forbidigo]
+      # Tests are outside rules 4 (function length) and 5 (assertion density)
+      # but inside all others.
+      - path: '_test\.go$'
+        linters: [funlen, gocognit]
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
