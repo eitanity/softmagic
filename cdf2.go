@@ -18,7 +18,7 @@ import (
 // MIME type, as the reference is run twice by `file` and `file -i`.
 func (s *scan) detectCDF() builtinResult {
 	invariant.Check(len(s.buf) >= 2, "detectors run on two or more bytes")
-	if _, ok := cdfReadHeader(s.buf); !ok {
+	if _, ok := cdfReadHeader(s.cdfHeaderBytes()); !ok {
 		return builtinResult{}
 	}
 	desc, hit := s.cdfRun(false)
@@ -32,6 +32,22 @@ func (s *scan) detectCDF() builtinResult {
 	return builtinResult{desc: desc, mime: mime, hit: true}
 }
 
+// cdfHeaderBytes is the 512-byte header: from the window, or, when MaxBytes
+// made that shorter, through the IdentifyAt reader, as the reference's
+// cdf_read falls back to its descriptor.
+func (s *scan) cdfHeaderBytes() []byte {
+	invariant.Check(s.buf != nil || len(s.buf) == 0, "input window")
+	if len(s.buf) >= 512 {
+		return s.buf
+	}
+	b, ok := s.readAt(0, 512)
+	invariant.Check(!ok || len(b) == 512, "a header read is whole")
+	if !ok {
+		return nil
+	}
+	return b
+}
+
 // cdfRun parses the document and prints in one mode; the printed text is
 // returned and removed from the output.
 func (s *scan) cdfRun(mime bool) (string, bool) {
@@ -39,7 +55,7 @@ func (s *scan) cdfRun(mime bool) (string, bool) {
 	pr := cdfPrinter{s: s, mime: mime}
 	c := &cdfFile{s: s, buf: s.buf, root: -1, streamSlot: 3}
 	var ok bool
-	c.h, ok = cdfReadHeader(s.buf)
+	c.h, ok = cdfReadHeader(s.cdfHeaderBytes())
 	invariant.Check(ok, "header checked by detectCDF")
 	i, expn := pr.body(c)
 	if i == -1 {

@@ -859,6 +859,34 @@ func dec2(n int64) string {
 	return pad2(int(n))
 }
 
+// cdfTimestamp is cdf_timestamp_to_timespec's seconds: the reference's
+// approximate calendar arithmetic on a FILETIME, then mktime with tm_isdst
+// 0, which reads the fields as standard local time. It is false where the
+// reference fails (a year past 9999).
+func cdfTimestamp(t int64) (int64, bool) {
+	t /= cdfTimePrec
+	sec := int(t % 60)
+	t /= 60
+	minute := int(t % 60)
+	t /= 60
+	hour := int(t % 24)
+	t /= 24
+	year := int(cdfBaseYear + t/365)
+	if year > 9999 {
+		return 0, false
+	}
+	t -= int64(cdfDays(year)) - 1
+	day := cdfGetDay(year, int(t))
+	month := cdfGetMonth(year, int(t))
+	asUTC := time.Date(year, time.Month(month+1), day, hour, minute, sec, 0, time.UTC)
+	local := time.Date(year, time.Month(month+1), day, hour, minute, sec, 0, time.Local)
+	_, off := local.Zone()
+	if local.IsDST() {
+		off -= 3600 // tm_isdst 0: the zone's standard offset
+	}
+	return asUTC.Unix() - int64(off), true
+}
+
 // cdfTime is cdf_timestamp_to_timespec followed by cdf_ctime: the
 // reference's own, approximate, calendar arithmetic, then mktime and
 // ctime in local time (which cancel), so the fields are printed as

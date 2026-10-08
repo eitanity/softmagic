@@ -22,25 +22,38 @@ const (
 	// maxFrames bounds use/indirect nesting; the reference's MAXR is 50.
 	maxFrames = 32
 	// indirMax is the reference's FILE_INDIR_MAX: indirect evaluations per
-	// call, cumulative, as the reference counts them.
+	// pass over the rules, the default of Limits.Indirect.
 	indirMax = 50
+	// nameMax is FILE_NAME_MAX, the default of Limits.Name: nested
+	// name/use evaluations. maxFrames stops nesting deeper than 32 first.
+	nameMax = 150
+	// limit16Max is the largest value file -P accepts for the limits the
+	// reference keeps in 16 bits.
+	limit16Max = 0xffff
+	// encodingLimitMax caps Limits.Encoding: the reference allows any int,
+	// but never classifies more than it read, which is DefaultMaxBytes.
+	encodingLimitMax = DefaultMaxBytes
 	// maxOutput caps the description; a longer one is cut and reported
 	// as Truncated "output".
 	maxOutput = 4096
 	// maxRules caps Result.Rules.
 	maxRules = 64
-	// encodingMax is the reference's FILE_ENCODING_MAX.
+	// encodingMax is the reference's FILE_ENCODING_MAX, the default of
+	// Limits.Encoding.
 	encodingMax = 64 * 1024
-	// regexMax is the reference's FILE_REGEX_MAX.
+	// regexMax is the reference's FILE_REGEX_MAX, the default of
+	// Limits.Regex.
 	regexMax = 8192
 	// maxLineLen is ascmagic.c's MAXLINELEN.
 	maxLineLen = 300
 	// utf8ScratchSize bounds the UTF-8 re-encoding of a classified text
-	// window: six bytes per character, encodingMax characters.
-	utf8ScratchSize = 6 * encodingMax
+	// window: six bytes per character, at most encodingLimitMax characters.
+	// The buffer grows to what a call needs, so the default limit costs
+	// 6 * encodingMax.
+	utf8ScratchSize = 6 * encodingLimitMax
 	// regexScratchSize bounds the byte-to-rune transcoding of a regex
-	// region: two bytes per input byte.
-	regexScratchSize = 2 * regexMax
+	// region: two bytes per input byte, at most limit16Max bytes.
+	regexScratchSize = 2 * limit16Max
 	// printableMax is the reference's buffer for a printed string.
 	printableMax = 512
 	// timeCheckEvery is how many top-level entries pass between polls of
@@ -56,7 +69,9 @@ const (
 
 // Options configures one identification. The zero value means defaults.
 type Options struct {
-	// MaxBytes caps the input consulted; 0 means DefaultMaxBytes.
+	// MaxBytes caps the input consulted (file -P bytes); 0 means
+	// DefaultMaxBytes and a negative value means none at all, as bytes=0
+	// does for the reference.
 	MaxBytes int
 	// MaxDepth caps use/indirect nesting; 0 means maxFrames, and larger
 	// values are clamped to it.
@@ -72,7 +87,97 @@ type Options struct {
 	// Raw is libmagic's MAGIC_RAW (file -r): strings from the input are
 	// printed as they are, not with non-printable bytes as \ooo escapes.
 	Raw bool
+	// Exclude switches checks off, as libmagic's MAGIC_NO_CHECK_* flags
+	// (file -e) do.
+	Exclude Checks
+	// Limits are libmagic's other MAGIC_PARAM_* parameters (file -P).
+	Limits Limits
 }
+
+// Limits are libmagic's MAGIC_PARAM_* parameters (file -P) other than the
+// byte count, which is Options.MaxBytes. Zero means file's default; a
+// negative value stands for file's 0; a value above what file -P accepts
+// is clamped to it. Reaching Indirect, Name or ELFShsize stops the
+// identification as the reference's error does: see Result.Failures.
+type Limits struct {
+	Indirect  int // -P indir: indirect evaluations per pass over the rules (50)
+	Name      int // -P name: nested name/use evaluations (150)
+	Regex     int // -P regex: bytes a regex test scans (8192)
+	Encoding  int // -P encoding: bytes classified as text or not (65536)
+	ELFNotes  int // -P elf_notes: ELF notes read (256)
+	ELFPhnum  int // -P elf_phnum: ELF program headers read (2048)
+	ELFShnum  int // -P elf_shnum: ELF section headers read (32768)
+	ELFShsize int // -P elf_shsize: largest ELF note section read (128 MiB)
+}
+
+// maxBytes is MaxBytes resolved: 0 the default, negative 0.
+func (o Options) maxBytes() int {
+	switch {
+	case o.MaxBytes == 0:
+		return DefaultMaxBytes
+	case o.MaxBytes < 0:
+		return 0
+	default:
+		return o.MaxBytes
+	}
+}
+
+// limits are Limits resolved to the values a call uses.
+type limits struct {
+	indirect, name, regex, encoding int
+	elfNotes, elfPhnum, elfShnum    int
+	elfShsize                       int
+}
+
+// resolve applies the defaults and bounds of Limits.
+func (l Limits) resolve() limits {
+	return limits{
+		indirect:  limitValue(l.Indirect, indirMax, limit16Max),
+		name:      limitValue(l.Name, nameMax, limit16Max),
+		regex:     limitValue(l.Regex, regexMax, limit16Max),
+		encoding:  limitValue(l.Encoding, encodingMax, encodingLimitMax),
+		elfNotes:  limitValue(l.ELFNotes, elfNotesMax, limit16Max),
+		elfPhnum:  limitValue(l.ELFPhnum, elfPhnumMax, limit16Max),
+		elfShnum:  limitValue(l.ELFShnum, elfShnumMax, limit16Max),
+		elfShsize: limitValue(l.ELFShsize, elfShsizeDefault, limit16Max),
+	}
+}
+
+// limitValue is one parameter: 0 the default, negative 0, at most hi.
+func limitValue(v, def, hi int) int {
+	switch {
+	case v == 0:
+		return def
+	case v < 0:
+		return 0
+	case v > hi:
+		return hi
+	default:
+		return v
+	}
+}
+
+// Checks is a set of libmagic's optional checks, for Options.Exclude.
+type Checks uint16
+
+// The checks file -e names. CheckCompress, CheckAppType and CheckTokens are
+// accepted and have no effect, as in the reference on this platform: there
+// is no decompression, the application-type check is OS/2's, and tokens is
+// kept upstream only for compatibility.
+const (
+	CheckSoft     Checks = 1 << iota // the rules: -e soft
+	CheckText                        // the text phase: -e text, -e ascii
+	CheckEncoding                    // the classification file_buffer passes on: -e encoding
+	CheckTar                         // -e tar
+	CheckJSON                        // -e json
+	CheckCSV                         // -e csv
+	CheckSIMH                        // -e simh
+	CheckCDF                         // -e cdf
+	CheckELF                         // -e elf
+	CheckCompress                    // -e compress
+	CheckAppType                     // -e apptype
+	CheckTokens                      // -e tokens
+)
 
 // matchMode selects what a match run collects: a description, or the
 // first MIME or extension annotation (the reference's MAGIC_MIME_TYPE and
@@ -111,21 +216,28 @@ type scan struct {
 	src              io.ReaderAt // the whole input when IdentifyAt was used, else nil
 	db               *Database
 	truncated        string
+	abort            string // libmagic's error message once a hard limit stopped the run, else ""
+	abortBuf         string // the reference's output buffer at the error
+	abortPartial     string // what the run had printed when it stopped
 	buf              []byte // the input window, at most MaxBytes
 	savedBuf         []byte // the input while the text phase matches over the UTF-8 scratch
 	utf8             []byte
 	rxbuf            []byte
 	srcbuf           []byte    // reads beyond the window
 	inbuf            []byte    // the window read from src, grown once
+	tailBuf          []byte    // the file's tail, for lines counted from the end, grown once
+	tail             []byte    // tailBuf's part read for this call
 	cdfbuf           [4][]byte // the CDF built-in's tables and streams, grown once
 	cdfdir           []cdfDir
 	srcSize          int64
 	frames           [maxFrames]frame
+	lim              limits
 	memo             [memoSize]memoEntry
 	search           searchState
 	indir            int
 	outLen           int
 	nseps            int // separators recorded in seps
+	elfStart         int // the ELF text's start in out while tryELF runs, else -1
 	timeCheck        int
 	maxRead          int
 	nframes          int
@@ -140,13 +252,17 @@ type scan struct {
 	appleRec         int32
 	extRec           int32
 	eoffset          int32
+	exclude          Checks
 	out              [maxOutput]byte
 	seps             [maxSeps]int32 // where each separator starts in out, ascending
 	value            [maxString]byte
 	printedSomething bool
 	needSeparator    bool
+	tailRead         bool // tail holds the file's tail for this call
 	mode             matchMode
 	cont             bool // a continue run is in progress (MAGIC_CONTINUE)
+	independent      bool // a run of one output mode, which prints its annotations
+	abortPushed      bool // the error's buffer was an indirect match's or the ELF reader's
 	wantCont         bool // Options.Continue
 	firstline        bool // the reference's firstline: nothing answered yet in this softmagic call
 	oobHit           bool
@@ -213,6 +329,10 @@ func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) {
 	}
 	s.execBit = o.Executable
 	s.raw = o.Raw
+	s.exclude = o.Exclude
+	s.lim = o.Limits.resolve()
+	s.abort, s.elfStart, s.independent = "", -1, false
+	s.tail, s.tailRead = nil, false
 	s.cont, s.wantCont, s.firstline, s.nseps = false, o.Continue, true, 0
 	s.src, s.srcSize = nil, 0
 	s.gen++
@@ -328,6 +448,9 @@ func (s *scan) timeUp() bool {
 // write appends b, truncating at the cap (reported as Truncated "output").
 func (s *scan) write(b []byte) {
 	invariant.Check(s.outLen <= maxOutput, "output length within cap")
+	if s.abort != "" {
+		return // after an error the reference prints nothing more
+	}
 	n := copy(s.out[s.outLen:], b)
 	s.outLen += n
 	if n < len(b) {
@@ -337,6 +460,9 @@ func (s *scan) write(b []byte) {
 
 func (s *scan) writeString(str string) {
 	invariant.Check(s.outLen <= maxOutput, "output length within cap")
+	if s.abort != "" {
+		return
+	}
 	n := copy(s.out[s.outLen:], str)
 	s.outLen += n
 	if n < len(str) {
@@ -345,6 +471,9 @@ func (s *scan) writeString(str string) {
 }
 
 func (s *scan) writeByte(c byte) {
+	if s.abort != "" {
+		return
+	}
 	if s.outLen >= maxOutput {
 		s.truncate(TruncOutput)
 		return
@@ -353,8 +482,53 @@ func (s *scan) writeByte(c byte) {
 	s.outLen++
 }
 
+// abortWith is file_error for a hard limit: the run stops, and its error
+// text is what the current output buffer holds (an indirect match's or the
+// ELF reader's own, as the reference pushes those), a blank, and msg. Only
+// the first error counts, and nothing is printed after it.
+func (s *scan) abortWith(reason, msg string) {
+	invariant.Check(reason != "" && msg != "", "an error names its limit")
+	if s.abort != "" {
+		return
+	}
+	base, pushed := s.bufferBase()
+	invariant.Check(base >= 0 && base <= s.outLen, "buffer start within the output")
+	s.abort, s.abortBuf, s.abortPushed = msg, string(s.out[base:s.outLen]), pushed
+	s.abortPartial = string(s.out[:s.outLen])
+	s.truncate(reason)
+}
+
+// bufferBase is where the reference's current output buffer starts in out,
+// and whether it is a pushed one: the innermost indirect match's, else the
+// ELF reader's, else the call's own from 0.
+func (s *scan) bufferBase() (int, bool) {
+	for i := range s.nframes {
+		f := &s.frames[s.nframes-1-i]
+		if f.kind == kindIndirect {
+			return f.savedOutLen, true
+		}
+	}
+	if s.elfStart >= 0 {
+		return s.elfStart, true
+	}
+	return 0, false
+}
+
 // output is the text printed so far.
 func (s *scan) output() []byte { return s.out[:s.outLen] }
+
+// excluded reports whether Options.Exclude switched the check off.
+func (s *scan) excluded(c Checks) bool { return s.exclude&c != 0 }
+
+// classifyMain is the classification file_buffer passes on to the
+// detectors and the rules: none, treated as binary, under -e encoding.
+// The text phase classifies its own window regardless.
+func (s *scan) classifyMain() encoding {
+	if s.excluded(CheckEncoding) {
+		return encoding{kind: encBinary}
+	}
+	return classify(s.buf, s.lim.encoding)
+}
 
 // writeSep is file_separator: the separator between two answers of a
 // continue run, with its position recorded so the answers can be told

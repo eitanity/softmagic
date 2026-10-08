@@ -49,6 +49,21 @@ costs about five times a first-match call: median 0.26 ms against 0.03 ms on the
 1.1 ms. `Options.Raw` is `MAGIC_RAW`, `file -r`: strings taken from the input are printed as
 they are rather than with non-printable bytes as `\ooo` escapes.
 
+`Options.Exclude` is `MAGIC_NO_CHECK_*`, `file -e`: `CheckSoft`, `CheckText`, `CheckEncoding`,
+`CheckTar`, `CheckJSON`, `CheckCSV`, `CheckSIMH`, `CheckCDF`, `CheckELF` switch those checks off
+(`CheckCompress`, `CheckAppType` and `CheckTokens` are accepted and change nothing, as in the
+reference). `Options.Limits` is libmagic's other parameters, `file -P`: indirect count, `use`
+nesting, regex bytes, encoding bytes and the ELF note, program-header, section and note-size
+limits; zero is `file`'s default and a negative value is its 0 (likewise `MaxBytes`, so
+`MaxBytes: -1` is `bytes=0`). Three limits are errors in the reference when reached: indirect,
+name and ELF note size. The library still returns an answer, with `Examined.Truncated` naming
+the limit, and `Result.Failures` carries for each output mode the error libmagic would report;
+`Failure.Text` is what `file` prints after `ERROR: `.
+
+`softmagic.DumpSources` and `compile.Dump` are `file -c`: each rule line, in the order read, in
+libmagic's parsed form (`*unknown*, 14: > 0 string,=@abstract:,"A2ML ..."]`), byte-identical to
+what `file -c` prints for the same directory.
+
 The compiled form (`Marshal`, `Load`) carries a format version, the `file` release it was
 compiled for and the source hash; `Load` refuses another version or release by name. After
 `Load` or `Default`, regexes compile on first use behind one `sync.Once` per rule, which keeps

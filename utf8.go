@@ -95,7 +95,7 @@ func utf8AcceptRange(class uint8) (lo, hi byte) {
 // UTF-8, 0 for valid UTF-8 containing control characters, 1 for plain
 // ASCII, 2 for valid multi-byte UTF-8.
 func looksUTF8(buf []byte) int {
-	invariant.Check(len(buf) <= encodingMax || len(buf) <= maxString, "classified window bounded")
+	invariant.Check(len(buf) <= encodingLimitMax || len(buf) <= maxString, "classified window bounded")
 	gotone, ctrl := false, false
 	for i := 0; i < len(buf); i++ {
 		b := buf[i]

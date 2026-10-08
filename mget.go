@@ -10,6 +10,7 @@ package softmagic
 import (
 	"encoding/binary"
 	"math"
+	"strconv"
 
 	"github.com/eitanity/softmagic/internal/invariant"
 )
@@ -22,26 +23,109 @@ func (s *scan) setOffset(m *record, f *frame, contLevel int32) bool {
 	invariant.Check(f.n >= 0, "window length non-negative")
 	if m.flag&flagOffNegative != 0 {
 		if contLevel > 0 && m.flag&(flagOffAdd|flagIndirOffAdd) != 0 {
-			s.offset, s.eoffset = bitsOfInt32(-m.offset), 0
+			// msetoffset's goto normal: back on the window, as bb is reset.
+			s.offset, s.eoffset, f.onTail = bitsOfInt32(-m.offset), 0, false
 			return true
 		}
-		if f.o != 0 {
-			return false // the reference refuses a non-zero base here
-		}
-		if int64(m.offset) > int64(f.n) {
-			s.oobHit = true
-			return false
-		}
-		s.eoffset = wrapInt32(int64(f.n) - int64(m.offset))
-		s.offset = bitsOfInt32(s.eoffset)
-		return true
+		return s.setOffsetFromEnd(m, f)
 	}
 	if m.flag&flagOffPositive != 0 || contLevel == 0 {
 		s.offset, s.eoffset = bitsOfInt32(m.offset), 0
+		f.onTail = false // match()'s "normal" path resets bb to the window
 		return true
 	}
 	s.offset = bitsOfInt32(s.eoffset) + bitsOfInt32(m.offset)
 	return true
+}
+
+// setOffsetFromEnd is msetoffset for a line counted from the end: from the
+// window's end, or, as the reference's buffer_fill does for a file it
+// opened, from the end of the file's last bytes (as many as the window
+// holds), which past MaxBytes are not the window's.
+func (s *scan) setOffsetFromEnd(m *record, f *frame) bool {
+	invariant.Check(m.flag&flagOffNegative != 0, "a line counted from the end")
+	invariant.Check(f.n >= 0, "window length non-negative")
+	if f.o != 0 {
+		return false // the reference refuses a non-zero base here
+	}
+	n := int64(f.n)
+	if s.tailApplies(m) {
+		t, ok := s.fileTail(f.n)
+		if !ok {
+			return false
+		}
+		n, f.onTail = int64(len(t)), true
+	}
+	if int64(m.offset) > n {
+		s.oobHit = true
+		return false
+	}
+	s.eoffset = wrapInt32(n - int64(m.offset))
+	s.offset = bitsOfInt32(s.eoffset)
+	return true
+}
+
+// tailApplies reports whether a line counted from the end reads the file's
+// tail rather than the window's: an IdentifyAt input longer than the
+// window, in the binary phase, and a test that reads one value. A search,
+// regex, der, use or indirect line still counts from the window's end.
+func (s *scan) tailApplies(m *record) bool {
+	invariant.Check(m.flag&flagOffNegative != 0, "a line counted from the end")
+	if s.src == nil || s.winID != windowBin || s.srcSize <= int64(len(s.buf)) {
+		return false
+	}
+	return readsOneValue(m)
+}
+
+// readsOneValue reports whether a line's test reads one value at its
+// offset, which can come from the tail; a search, regex, der, use or
+// indirect line works over regions or frames of the window.
+func readsOneValue(m *record) bool {
+	switch m.typ {
+	case tSearch, tRegex, tDer, tUse, tIndirect, tName:
+		return false
+	default:
+		return true
+	}
+}
+
+// fileTail is the file's last min(size, n) bytes, read once per call.
+func (s *scan) fileTail(n int) ([]byte, bool) {
+	invariant.Check(n >= 0 && s.src != nil, "a tail of an IdentifyAt input")
+	l := int64(n)
+	if s.srcSize < l {
+		l = s.srcSize
+	}
+	if len(s.tail) == int(l) && s.tailRead {
+		return s.tail, true
+	}
+	b, ok := s.readAt(s.srcSize-l, int(l))
+	if !ok {
+		return nil, false
+	}
+	if cap(s.tailBuf) < len(b) {
+		s.tailBuf = make([]byte, len(b))
+	}
+	s.tail = s.tailBuf[:copy(s.tailBuf[:len(b)], b)]
+	s.tailRead = true
+	return s.tail, true
+}
+
+// mgetLine is mget over the window the reference's bb holds: the frame's
+// own, or the file's tail after a line counted from the end.
+func (s *scan) mgetLine(m *record, f *frame) (int, bool) {
+	invariant.Check(f.base+f.n <= len(s.buf), "frame window within the buffer")
+	if !f.onTail || !readsOneValue(m) || !s.tailRead {
+		return s.mget(m, f)
+	}
+	saved := s.buf
+	tf := *f
+	tf.base, tf.n = 0, len(s.tail)
+	s.buf = s.tail
+	r, pushed := s.mget(m, &tf)
+	s.buf = saved
+	invariant.Check(!pushed, "a tail line pushes no frame")
+	return r, pushed
 }
 
 // mget reads the value the line tests into s.value, resolving indirect
@@ -51,6 +135,16 @@ func (s *scan) setOffset(m *record, f *frame, contLevel int32) bool {
 func (s *scan) mget(m *record, f *frame) (r int, pushed bool) {
 	invariant.Check(f.base+f.n <= len(s.buf), "frame window within the buffer")
 	invariant.Check(m.typ != tInvalid, "line has a type")
+	// The reference checks both counts before every line, not only before
+	// the lines that raise them, and either one ends the identification.
+	if s.indir >= s.lim.indirect {
+		s.abortWith(TruncIndirect, "indirect count ("+strconv.Itoa(s.indir)+") exceeded")
+		return -1, false
+	}
+	if s.names >= s.lim.name {
+		s.abortWith(TruncName, "name use count ("+strconv.Itoa(s.names)+") exceeded")
+		return -1, false
+	}
 	win, nbytes := s.window(f), f.n
 	offset := s.offset
 	s.mcopy(m, m.flag&flagIndir != 0, win, offset+f.o)
@@ -181,8 +275,8 @@ func (s *scan) setRegexRegion(m *record, win []byte, offset uint32) {
 	if bytecnt == 0 || bytecnt > nbytes-off {
 		bytecnt = nbytes - off
 	}
-	if bytecnt > regexMax {
-		bytecnt = regexMax // the reference's own cap, applied silently as it does
+	if bytecnt > s.lim.regex {
+		bytecnt = s.lim.regex // the reference's regex_max, applied silently as it does
 	}
 	region := win[off : off+bytecnt]
 	last := regexLineLimit(region, linecnt)
@@ -568,7 +662,7 @@ func isWidth4(t fileType) bool {
 func isWidth8(t fileType) bool {
 	switch t {
 	case tQuad, tBeQuad, tLeQuad, tQDate, tBeQDate, tLeQDate, tQLDate, tBeQLDate,
-		tLeQLDate, tDouble, tBeDouble, tLeDouble:
+		tLeQLDate, tQWDate, tBeQWDate, tLeQWDate, tDouble, tBeDouble, tLeDouble:
 		return true
 	default:
 		return false
@@ -640,10 +734,6 @@ func (s *scan) pushIndirect(m *record, f *frame, offset uint32) (int, bool) {
 		offset += f.o
 	}
 	if offset == 0 || int64(f.n) < int64(offset) {
-		return 0, false
-	}
-	if s.indir >= indirMax {
-		s.truncate(TruncRecursion)
 		return 0, false
 	}
 	child := frame{

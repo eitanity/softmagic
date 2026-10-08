@@ -9,13 +9,18 @@
 
 package softmagic
 
-import "github.com/eitanity/softmagic/internal/invariant"
+import (
+	"strings"
+
+	"github.com/eitanity/softmagic/internal/invariant"
+)
 
 // lineParser holds the cursor over one rule line and the record being built.
 type lineParser struct {
 	rec    *lineRec
 	tables *typeTables
 	file   string
+	dump   *strings.Builder // nil unless file -c's dump is wanted
 	line   []byte
 	i      int
 	lineno uint32
@@ -563,6 +568,9 @@ func (p *lineParser) parseLine() error {
 	p.parseDesc()
 	if err := p.checkFormat(); err != nil {
 		return err
+	}
+	if p.dump != nil {
+		p.mdump(p.dump) // where parse() calls file_mdump in check mode
 	}
 	p.rec.mimetype[0] = 0
 	return nil

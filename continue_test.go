@@ -108,3 +108,29 @@ func mustJSON(t *testing.T, v any) string {
 	}
 	return string(b)
 }
+
+// TestIndependentRunsAgree: without a hard limit, one file_buffer run per
+// output mode gives exactly the first-match answers, which derive the MIME,
+// extension and Apple answers from the description run. The runs are what
+// a hard limit falls back to, so they must be right where nothing fails.
+func TestIndependentRunsAgree(t *testing.T) {
+	db := compileMagdir(t)
+	files, err := filepath.Glob("testdata/corpus/*.testfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range files {
+		data, err := os.ReadFile(filepath.Clean(name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := db.Identify(data)
+		got := db.identifyIndependent(data)
+		if want.Description != got.Description || want.MIME != got.MIME ||
+			strings.Join(want.Extensions, "/") != strings.Join(got.Extensions, "/") || want.Apple != got.Apple {
+			t.Errorf("%s:\n first match %q | %q | %q | %q\n independent %q | %q | %q | %q", filepath.Base(name),
+				want.Description, want.MIME, want.Extensions, want.Apple,
+				got.Description, got.MIME, got.Extensions, got.Apple)
+		}
+	}
+}

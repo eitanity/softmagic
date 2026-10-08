@@ -25,17 +25,20 @@ type builtinResult struct {
 // SIMH; CDF and ELF are not implemented yet) and returns the first hit.
 func (s *scan) builtins(e encoding) builtinResult {
 	invariant.Check(len(s.buf) >= 2, "detectors run on two or more bytes")
-	if r := detectTar(s.buf); r.hit {
+	if r := detectTar(s.buf); r.hit && !s.excluded(CheckTar) {
 		return r
 	}
-	if r := detectJSON(s.buf); r.hit {
+	if r := detectJSON(s.buf); r.hit && !s.excluded(CheckJSON) {
 		return r
 	}
-	if r := detectCSV(s.buf, e); r.hit {
+	if r := detectCSV(s.buf, e); r.hit && !s.excluded(CheckCSV) {
 		return r
 	}
-	if r := detectSIMH(s.buf); r.hit {
+	if r := detectSIMH(s.buf); r.hit && !s.excluded(CheckSIMH) {
 		return r
+	}
+	if s.excluded(CheckCDF) {
+		return builtinResult{}
 	}
 	return s.detectCDF()
 }

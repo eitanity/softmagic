@@ -19,14 +19,16 @@ import (
 	"github.com/eitanity/softmagic/internal/invariant"
 )
 
-// Limits: the reference's defaults from file.h, except the note section
-// size, which bounds a per-call buffer here.
+// Limits: the reference's defaults from file.h, the defaults of
+// Options.Limits. elfShsizeMax is this port's own bound on a per-call read
+// buffer, under the reference's elfShsizeDefault.
 const (
-	elfNotesMax  = 256
-	elfPhnumMax  = 2048
-	elfShnumMax  = 32768
-	elfShsizeMax = 16 * 1024 * 1024
-	elfNbufSize  = 2024 // NBUFSIZE
+	elfNotesMax      = 256
+	elfPhnumMax      = 2048
+	elfShnumMax      = 32768
+	elfShsizeDefault = 128 * 1024 * 1024
+	elfShsizeMax     = 16 * 1024 * 1024
+	elfNbufSize      = 2024 // NBUFSIZE
 )
 
 // ELF constants used.
@@ -137,13 +139,17 @@ func (e *elfState) printf(str string) { e.s.writeString(str) }
 // reference appends after the rules' description, and sets the scan's
 // executable bit from the dynamic section as the reference sets ms->mode.
 func (s *scan) tryELF() string {
+	if s.excluded(CheckELF) {
+		return ""
+	}
 	buf := s.buf
 	if len(buf) <= 52 || buf[0] != 0x7f || (buf[1] != 'E' && buf[1] != 'O') || buf[2] != 'L' || buf[3] != 'F' {
 		return ""
 	}
-	e := elfState{s: s, class: buf[4], fsize: s.inputSize(), notecount: elfNotesMax}
+	e := elfState{s: s, class: buf[4], fsize: s.inputSize(), notecount: s.lim.elfNotes}
 	e.swap = buf[5] != 1 // the host is little-endian
 	start := s.outLen
+	s.elfStart = start // the reference reads ELF into a buffer of its own
 	switch e.class {
 	case elfClass32, elfClass64:
 		e.run(buf)
@@ -151,7 +157,7 @@ func (s *scan) tryELF() string {
 		e.printf(", unknown class " + strconv.Itoa(int(e.class)))
 	}
 	text := string(s.out[start:s.outLen])
-	s.outLen = start
+	s.outLen, s.elfStart = start, -1
 	return text
 }
 
@@ -183,7 +189,7 @@ func (e *elfState) run(buf []byte) {
 	}
 	switch typ {
 	case etCore:
-		if phnum > elfPhnumMax {
+		if int(phnum) > e.s.lim.elfPhnum {
 			e.tooMany("program headers", phnum)
 			return
 		}
@@ -191,18 +197,18 @@ func (e *elfState) run(buf []byte) {
 		e.phOff, e.phNum = offInt(phoff), int(phnum)
 		e.phdrCore(e.phOff, e.phNum, int(phentsize))
 	case etExec, etDyn:
-		if phnum > elfPhnumMax {
+		if int(phnum) > e.s.lim.elfPhnum {
 			e.tooMany("program", phnum)
 			return
 		}
-		if shnum > elfShnumMax {
+		if int(shnum) > e.s.lim.elfShnum {
 			e.tooMany("section", shnum)
 			return
 		}
 		e.phdrExec(offInt(phoff), int(phnum), int(phentsize), shnum != 0)
 		e.shdr(offInt(shoff), int(shnum), int(shentsize), int(shstrndx))
 	case etRel:
-		if shnum > elfShnumMax {
+		if int(shnum) > e.s.lim.elfShnum {
 			e.tooMany("section headers", shnum)
 			return
 		}
@@ -210,7 +216,7 @@ func (e *elfState) run(buf []byte) {
 	default:
 	}
 	if e.notecount == 0 {
-		e.tooMany("notes", elfNotesMax)
+		e.tooMany("notes", low16(bitsOfInt64(int64(e.s.lim.elfNotes)))) // at most limit16Max
 	}
 }
 
@@ -526,8 +532,15 @@ func (e *elfState) noteSection(sh *elfShdr) bool {
 			strconv.FormatUint(sh.size, 16) + " exceeds file size 0x" + strconv.FormatInt(e.fsize, 16))
 		return false
 	}
+	if sh.size > bitsOfInt64(int64(e.s.lim.elfShsize)) { // a resolved limit is non-negative
+		// The reference's message carries the errno left from an earlier
+		// call, which is EINVAL on the hosts it was compared on.
+		e.s.abortWith(TruncELF, "Note section size too big ("+strconv.FormatUint(sh.size, 10)+" > "+
+			strconv.Itoa(e.s.lim.elfShsize)+") (Invalid argument)")
+		return false
+	}
 	if sh.size > elfShsizeMax {
-		e.s.truncate(TruncOutput)
+		e.s.truncate(TruncOutput) // this port's buffer bound, above the reference's limit
 		return false
 	}
 	data, ok := e.s.readAt(offInt(sh.offset), clampInt(sh.size, elfShsizeMax))

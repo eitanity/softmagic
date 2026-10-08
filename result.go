@@ -29,6 +29,10 @@ type Result struct {
 	// Continued is set with Options.Continue: what `file -b -k` prints in
 	// each output mode, as lists.
 	Continued Continued
+	// Failures is set when a hard limit of Options.Limits stopped an output
+	// mode, where the reference reports an error; the fields above are then
+	// what was established before it.
+	Failures Failures
 	// Examined says what the call looked at and what stopped it.
 	Examined Examined
 	// Strength is the winning entry's computed strength (as file -l prints it), 0 when
@@ -60,6 +64,52 @@ type Continued struct {
 	Extensions []string
 	// Apple is file -b -k --apple.
 	Apple []string
+	// Failures are the continue runs that a hard limit stopped.
+	Failures Failures
+}
+
+// Failures holds, per output mode, the error libmagic reports when a hard
+// limit of Options.Limits stopped that mode's run. Each mode is a run of
+// its own in the reference, and a run that returns at its first annotation
+// can finish before the line that stops another, so one mode can fail
+// while another answers.
+type Failures struct {
+	Description Failure
+	MIME        Failure // also -i, which is the MIME run with the charset after it
+	Encoding    Failure
+	Extension   Failure
+	Apple       Failure
+}
+
+// Failure is libmagic's error for one output mode; the zero value is none.
+// libmagic appends Message to its current output buffer, after a blank when
+// that is not empty, and magic_error returns the result: see Text.
+type Failure struct {
+	// Message is libmagic's own: "indirect count (50) exceeded".
+	Message string
+	// Buffer is what the output buffer held: what the mode had printed, or,
+	// when Pushed, the output of the indirect match or ELF reader the error
+	// came inside, which the reference reads into a buffer of its own.
+	Buffer string
+	Pushed bool
+}
+
+// Failed reports whether the mode stopped with an error.
+func (f Failure) Failed() bool { return f.Message != "" }
+
+// Text is magic_error's text, which file(1) prints after "ERROR: ".
+// prefix is whatever the caller's buffer held before the identification
+// began (file's stat-layer words, such as "setuid "); it is part of the
+// buffer only when the error was not inside a pushed one.
+func (f Failure) Text(prefix string) string {
+	buf := f.Buffer
+	if !f.Pushed {
+		buf = prefix + buf
+	}
+	if buf != "" {
+		buf += " "
+	}
+	return buf + f.Message
 }
 
 // Phases: which pass of file_buffer produced the description.
@@ -111,4 +161,10 @@ const (
 	TruncTime      = "time"
 	TruncOutput    = "output"
 	TruncInvariant = "invariant"
+	// TruncIndirect, TruncName and TruncELF are the hard limits of
+	// Options.Limits: the reference stops with an error, and so does the
+	// output mode that reached one (see Result.Failures).
+	TruncIndirect = "indirect"
+	TruncName     = "name"
+	TruncELF      = "elf"
 )

@@ -44,10 +44,7 @@ func (db *Database) IdentifyAt(ctx context.Context, r io.ReaderAt, size int64, o
 	if !invariant.Check(db != nil && db.pool != nil, "identify on a compiled database") || r == nil || size < 0 {
 		return invariantResult()
 	}
-	maxBytes := o.MaxBytes
-	if maxBytes <= 0 {
-		maxBytes = DefaultMaxBytes
-	}
+	maxBytes := o.maxBytes()
 	n := size
 	if n > int64(maxBytes) {
 		n = int64(maxBytes)
@@ -79,20 +76,28 @@ func (db *Database) identify(ctx context.Context, data []byte, o Options, comple
 		return Result{Description: "data", MIME: "application/octet-stream", Charset: "binary", Phase: PhaseDefault,
 			Examined: Examined{Truncated: TruncInvariant, ImplementsFile: ImplementsFile}}
 	}
-	maxBytes := o.MaxBytes
-	if maxBytes <= 0 {
-		maxBytes = DefaultMaxBytes
-	}
+	maxBytes := o.maxBytes()
 	if len(data) > maxBytes {
 		data = data[:maxBytes]
 	}
-	invariant.Check(maxBytes > 0 && len(data) <= maxBytes, "window within MaxBytes")
+	invariant.Check(maxBytes >= 0 && len(data) <= maxBytes, "window within MaxBytes")
 	s := db.pool.get(db, ctx, data, o)
 	r := s.identify()
 	r.Examined.Complete = complete
 	if !complete {
 		r.Examined.NeedMore = s.oobHit || s.maxRead >= len(data)
 	}
+	db.pool.put(s)
+	return r
+}
+
+// identifyIndependent is Identify with every answer from a run of its own
+// output mode: the path a hard limit falls back to, for tests to compare
+// with the first-match path.
+func (db *Database) identifyIndependent(data []byte) Result {
+	r := db.Identify(data)
+	s := db.pool.get(db, context.Background(), data, Options{})
+	r = s.independentResult(r)
 	db.pool.put(s)
 	return r
 }
@@ -111,7 +116,7 @@ func (s *scan) identify() Result {
 		return s.finishResult(r, "very short file (no magic)", "application/octet-stream", "binary")
 	default:
 	}
-	e := classify(s.buf)
+	e := s.classifyMain()
 	s.noteRead(e.n)
 	charset := e.charset()
 	if bi := s.builtins(e); bi.hit {
@@ -156,6 +161,9 @@ func (s *scan) finishResult(r Result, desc, mime, charset string) Result {
 	invariant.Check(desc != "", "a blank is never an answer")
 	invariant.Check(mime != "" && charset != "", "MIME and charset always set")
 	r.Description, r.MIME, r.Charset = desc, mime, charset
+	if s.abort != "" {
+		r = s.independentResult(r) // a hard limit stopped the first-match run
+	}
 	if s.wantCont {
 		r.Continued = s.identifyContinue(charset)
 	}
@@ -168,6 +176,9 @@ func (s *scan) finishResult(r Result, desc, mime, charset string) Result {
 // over win and report whether anything was printed or annotated.
 func (s *scan) softmagic(win []byte, mode uint16, text bool) bool {
 	invariant.Check(mode == flagBinTest || mode == flagTextTest, "mode is one class")
+	if s.excluded(CheckSoft) {
+		return false // -e soft: neither the binary nor the text rules run
+	}
 	s.beginWindow(win)
 	s.winID = windowBin
 	if mode == flagTextTest {
@@ -178,6 +189,7 @@ func (s *scan) softmagic(win []byte, mode uint16, text bool) bool {
 		// file_softmagic's locals, fresh for each call.
 		s.printedSomething, s.needSeparator, s.firstline = false, false, true
 	}
+	s.indir, s.names = 0, 0    // file_softmagic's counters, also fresh for each call
 	for i := range s.db.maps { // file_softmagic: one match() per map, in order
 		s.nframes = 0
 		s.levels = [maxLevels]levelInfo{}
@@ -188,8 +200,8 @@ func (s *scan) softmagic(win []byte, mode uint16, text bool) bool {
 		invariant.Check(ok, "root frame fits")
 		found := s.run()
 		rv = rv || found
-		if found && !s.cont {
-			break // under MAGIC_CONTINUE every map answers
+		if s.abort != "" || (found && !s.cont) {
+			break // under MAGIC_CONTINUE every map answers; an error ends the call
 		}
 	}
 	s.endWindow()
@@ -232,7 +244,7 @@ func (s *scan) mimeResult(found, textFound bool, e encoding) string {
 	if s.textPhase(e.isText(), e) && s.mimeRec >= 0 {
 		return varexpand(s.db.mimeOf(s.mimeRec), s.execBit)
 	}
-	if textPhaseWouldRun(s.buf, e) {
+	if s.textPhaseWouldRun(e) {
 		return "text/plain"
 	}
 	return "application/octet-stream"
@@ -240,7 +252,11 @@ func (s *scan) mimeResult(found, textFound bool, e encoding) string {
 
 // textPhaseWouldRun says whether the text phase reaches its "text/plain"
 // line: the trimmed window is text.
-func textPhaseWouldRun(buf []byte, e encoding) bool {
+func (s *scan) textPhaseWouldRun(e encoding) bool {
+	if s.excluded(CheckText) {
+		return false
+	}
+	buf := s.buf
 	n := trimNuls(buf)
 	if n&1 != 0 && len(buf)&1 == 0 {
 		n++
@@ -248,10 +264,10 @@ func textPhaseWouldRun(buf []byte, e encoding) bool {
 	if n <= 1 {
 		return false
 	}
-	if n != len(buf) {
-		e = classify(buf[:n])
+	if n != len(buf) || s.excluded(CheckEncoding) {
+		e = classify(buf[:n], s.lim.encoding)
 	}
-	return e.isText()
+	return e.isText() && trimNuls(buf[:n]) > 1 // the second trim, as in textPhase
 }
 
 // extResult reproduces `file --extension`: the first extension annotation

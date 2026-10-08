@@ -1,0 +1,29 @@
+0	string/cW	ABC\t\x01x	strings and flags
+>3	ubyte&0xf0	>0x10	\b, masked %d
+>(4.l+2)	belong	=-5	indirect add
+>(8.s*4)	leshort	!0	\b, indirect multiply
+>&(2.b-1)	byte	x	relative indirect
+>-4	ulelong	0x1234	from the end
+0	search/32/c	needle	search with range
+0	regex/2l	^[a-z]+$	regex with line count
+0	pstring/HJ	pas	pascal
+0	lestring16	ab	utf16
+0	date	0	a date %s
+0	qldate	1000000000	a local qdate %s
+0	lefloat	1.5	a float %g
+0	bedouble	-2.25e10	a double %g
+0	leqwdate	0	a filetime %s
+0	lemsdosdate	0x4a21	a dos date %s
+0	lemsdostime	0x6000	a dos time %s
+0	octal	0755	an octal %s
+0	guid	12345678-1234-5678-9ABC-DEF012345678	a guid
+0	quad	-1	a quad %lld
+0	name	sub
+>0	byte	1	in sub
+0	string	USE
+>0	use	sub
+>0	use	^sub
+0	der	seq	a der
+0	default	x	default line
+>0	clear	x
+0	string/T	trim	trimmed

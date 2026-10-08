@@ -51,6 +51,24 @@ func FuzzIdentify(f *testing.F) {
 		if len(data)%2 == 0 && c.Description != r.Description {
 			t.Fatalf("continue changed the description: %q vs %q", c.Description, r.Description)
 		}
+		// Exclusions and small limits chosen by the input itself, which
+		// drives the hard-limit errors and the per-mode runs they fall
+		// back to: still never a blank, and a failure always has a message.
+		if len(data) > 3 {
+			o := Options{Exclude: Checks(data[0]) | Checks(data[1]&0x0f)<<8, Continue: data[2]&1 != 0,
+				Limits: Limits{Indirect: int(data[2]>>1&3) - 1, Name: int(data[2]>>3&3) - 1,
+					Regex: int(data[3]&0x3f) - 1, Encoding: int(data[3]>>6) * 16, ELFShsize: int(data[3]&7) - 1}}
+			x := db.IdentifyWith(context.Background(), data, o)
+			if x.Description == "" || x.MIME == "" || x.Charset == "" {
+				t.Fatalf("blank answer with %+v: %+v", o, x)
+			}
+			for _, f := range []Failure{x.Failures.Description, x.Failures.MIME, x.Failures.Encoding,
+				x.Failures.Extension, x.Failures.Apple} {
+				if f.Buffer != "" && f.Message == "" {
+					t.Fatalf("a failure buffer without a message: %+v", f)
+				}
+			}
+		}
 	})
 }
 
@@ -61,6 +79,11 @@ func FuzzCompile(f *testing.F) {
 	f.Add("0 name x\n>0 use x\n")
 	f.Add("0 search/10 abc\n0 lelong&0xff =1 one\n>(4.l+2) ubelong x %u\n")
 	f.Fuzz(func(t *testing.T, rules string) {
+		// file -c's dump of the same text: no panic, one line per rule.
+		if dump, _ := DumpSources([]Source{{Name: "f", Data: []byte(rules)}}, CompileOptions{}); dump != "" &&
+			!strings.HasSuffix(dump, "]\n") {
+			t.Fatalf("a dump line not ended as file_mdump ends it: %q", dump)
+		}
 		db, err := compileFS(fstest.MapFS{"f": &fstest.MapFile{Data: []byte(rules)}}, CompileOptions{})
 		if err != nil {
 			return

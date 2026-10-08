@@ -10,6 +10,7 @@ package softmagic
 import (
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/eitanity/softmagic/internal/invariant"
 )
@@ -53,7 +54,8 @@ type compiler struct {
 	hash      string
 	arena     arena // the records' byte fields
 	sets      [2][]pending
-	cur       *pending // entry under construction, nil between entries
+	cur       *pending         // entry under construction, nil between entries
+	dump      *strings.Builder // file -c: each line's parsed form, when DumpSources asks
 	tables    typeTables
 	base      *Database
 	files     []string
@@ -126,7 +128,7 @@ func (c *compiler) loadLine(file string, lineno uint32, line []byte) error {
 	// A final line with no newline keeps the previous line number, as the
 	// reference counts (a one-line file without a newline is line 0).
 	invariant.Check(len(line) > 0 && line[0] != '#', "parsable line")
-	p := lineParser{line: line, file: file, lineno: lineno, tables: &c.tables}
+	p := lineParser{line: line, file: file, lineno: lineno, tables: &c.tables, dump: c.dump}
 	if len(line) >= 2 && line[0] == '!' && line[1] == ':' {
 		return c.annotate(&p)
 	}

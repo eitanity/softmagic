@@ -41,6 +41,28 @@ func Compile(fsys fs.FS, o softmagic.CompileOptions) (*softmagic.Database, error
 	return softmagic.CompileSources(Hash(srcs), srcs, o)
 }
 
+// Dump is file -c over a rule directory: each rule line, in the order
+// read, in libmagic's parsed form (see softmagic.DumpSources). It reads
+// fsys as Compile does.
+func Dump(fsys fs.FS, o softmagic.CompileOptions) (string, error) {
+	if fsys == nil {
+		return "", &softmagic.CompileError{File: "", Line: 0, Msg: "nil fs.FS"}
+	}
+	names, err := listRuleFiles(fsys)
+	if err != nil {
+		return "", err
+	}
+	srcs := make([]softmagic.Source, 0, len(names))
+	for _, name := range names {
+		data, err := fs.ReadFile(fsys, name)
+		if err != nil {
+			return "", &softmagic.CompileError{File: name, Line: 0, Msg: err.Error()}
+		}
+		srcs = append(srcs, softmagic.Source{Name: name, Data: data})
+	}
+	return softmagic.DumpSources(srcs, o)
+}
+
 // Append returns a database that searches base first and then extra, as
 // file(1) searches the directories of `-m a:b`; see Database.Join. Its
 // hash is the SHA-256 of both inputs' hashes.

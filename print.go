@@ -305,9 +305,6 @@ func hexUpper(dst []byte, v uint64) {
 // maxCTime is the reference's MAX_CTIME: the last second of year 9999.
 const maxCTime = 0x3afff487cf
 
-// windowsEpochOffset is the seconds between 1601-01-01 and 1970-01-01.
-const windowsEpochOffset = 11644473600
-
 // fmtDateTime is file_fmtdatetime: asctime's format, in UTC or local time,
 // from a 32- or 64-bit second count or a Windows FILETIME.
 func fmtDateTime(t fileType, v []byte) string {
@@ -328,7 +325,13 @@ func fmtDateTime(t fileType, v []byte) string {
 		secs, windows = int64FromBits(binary.LittleEndian.Uint64(v)), true
 	}
 	if windows {
-		secs = secs/10000000 - windowsEpochOffset
+		// file_fmtdatetime converts a FILETIME through
+		// cdf_timestamp_to_timespec, local time and all, then prints it in UTC.
+		s, ok := cdfTimestamp(secs)
+		if !ok {
+			return "*Invalid datetime*"
+		}
+		secs = s
 	}
 	if secs > maxCTime {
 		return "*Invalid datetime*"

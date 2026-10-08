@@ -47,7 +47,11 @@ type frame struct {
 	savedNeedSep bool                 // use
 	// ended is set when the frame completed early (the reference's return
 	// from inside match), not by running out of lines.
-	ended        bool
+	ended bool
+	// onTail is the reference's bb pointing at the file's tail: set by a
+	// line counted from the end, it stays for the lines after it until one
+	// is placed absolutely, as match() keeps bb from line to line.
+	onTail       bool
 	savedOffset  uint32 // use: ms->offset
 	savedEoffset int32  // use
 	savedOutLen  int    // indirect: output length at push
@@ -90,7 +94,7 @@ func (s *scan) run() bool {
 	invariant.Check(s.maxDepth > 0 && s.maxDepth <= maxFrames, "depth cap in range")
 	invariant.Check(s.nframes == 1, "run starts with the root frame")
 	rootResult := false
-	for steps := 0; steps < maxSteps && s.nframes > 0 && s.truncated != TruncTime; steps++ {
+	for steps := 0; steps < maxSteps && s.nframes > 0 && s.truncated != TruncTime && s.abort == ""; steps++ {
 		f := &s.frames[s.nframes-1]
 		if f.idx >= f.count {
 			if s.cont && f.phase == phaseCont && !f.ended {
@@ -105,8 +109,11 @@ func (s *scan) run() bool {
 			s.stepCont(f)
 		}
 	}
-	if s.nframes > 0 && s.truncated != TruncTime {
+	if s.nframes > 0 && s.truncated != TruncTime && s.abort == "" {
 		s.truncate(TruncTime) // the step budget ran out
+	}
+	if s.abort != "" {
+		s.nframes = 0 // the reference returns -1 through every level
 	}
 	return rootResult
 }
@@ -150,7 +157,7 @@ func (s *scan) pushNextMap(done *frame) {
 	m := &s.db.maps[next.mapIdx]
 	next.first, next.count = m.first, m.count
 	next.idx, next.contLevel, next.phase = 0, 0, phaseTop
-	next.returnval, next.foundMatch = false, false
+	next.returnval, next.foundMatch, next.onTail = false, false, false // a new match() call starts on the window
 	ok := s.pushFrame(&next)
 	invariant.Check(ok, "the popped frame's slot is free")
 }
@@ -200,7 +207,7 @@ func (s *scan) stepTop(f *frame) {
 		s.flush(f)
 		return
 	}
-	r, pushed := s.mget(m, f)
+	r, pushed := s.mgetLine(m, f)
 	if pushed {
 		return
 	}
@@ -295,7 +302,7 @@ func (s *scan) stepCont(f *frame) {
 		}
 		s.offset += bitsOfInt32(s.levels[f.contLevel-1].off)
 	}
-	r, pushed := s.mget(m, f)
+	r, pushed := s.mgetLine(m, f)
 	if pushed {
 		return
 	}
@@ -439,20 +446,25 @@ func (s *scan) annotate(m *record, f *frame) bool {
 		hit = m.hasApple()
 	default:
 	}
-	if hit && s.cont {
+	if hit && s.independent {
 		s.printAnnotation(rec)
 	}
 	return hit
 }
 
-// printAnnotation is handle_annotation's printing under MAGIC_CONTINUE: a
-// separator unless this is the first answer, then the annotation.
+// printAnnotation is handle_annotation's printing in a run of one mode:
+// the first answer is printed; a later one only under MAGIC_CONTINUE, after
+// a separator.
 func (s *scan) printAnnotation(rec int32) {
-	invariant.Check(s.cont, "annotations print only in continue runs")
+	invariant.Check(s.independent, "annotations print only in runs of one mode")
 	invariant.Check(rec >= 0 && int(rec) < len(s.db.recs), "annotated record within the database")
 	if !s.firstline {
+		if !s.cont {
+			return
+		}
 		s.writeSep()
 	}
+	s.firstline = false
 	switch s.mode {
 	case modeMime:
 		s.writeString(varexpand(s.db.mimeOf(rec), s.execBit))

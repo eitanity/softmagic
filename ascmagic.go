@@ -37,15 +37,15 @@ func (s *scan) textPhase(looksText bool, e encoding) bool {
 	if n&1 != 0 && len(s.buf)&1 == 0 {
 		n++ // keep the last UTF-16 unit whole
 	}
-	if n <= 1 {
+	if n <= 1 || s.excluded(CheckText) {
 		return false
 	}
 	win := s.buf[:n]
-	if n != len(s.buf) {
-		e = classify(win)
+	if n != len(s.buf) || s.excluded(CheckEncoding) {
+		e = classify(win, s.lim.encoding) // file_ascmagic classifies for itself
 	}
-	if !e.isText() {
-		return false
+	if !e.isText() || trimNuls(win) <= 1 {
+		return false // file_ascmagic_with_encoding trims again and gives up at one byte
 	}
 	utf8Len := s.encodeWindow(win, e)
 	invariant.Check(utf8Len <= len(s.utf8), "re-encoding fits the scratch")

@@ -98,12 +98,14 @@ func (e encoding) charset() string {
 
 func (e encoding) isText() bool { return e.kind != encBinary }
 
-// classify is file_encoding over at most encodingMax bytes of buf.
-func classify(buf []byte) encoding {
-	if len(buf) > encodingMax {
-		buf = buf[:encodingMax]
+// classify is file_encoding over at most limit bytes of buf (the
+// reference's encoding_max).
+func classify(buf []byte, limit int) encoding {
+	invariant.Check(limit >= 0 && limit <= encodingLimitMax, "encoding limit resolved")
+	if len(buf) > limit {
+		buf = buf[:limit]
 	}
-	invariant.Check(len(buf) <= encodingMax, "classified window bounded")
+	invariant.Check(len(buf) <= encodingLimitMax, "classified window bounded")
 	e := encoding{n: len(buf)}
 	switch {
 	case looksClass(buf, chT):
@@ -260,7 +262,7 @@ func ucs32At(bf []byte, i int, be bool) uint32 {
 
 // looksEBCDIC classifies through the EBCDIC-to-ASCII table.
 func looksEBCDIC(buf []byte) encodingKind {
-	invariant.Check(len(buf) <= encodingMax, "classified window bounded")
+	invariant.Check(len(buf) <= encodingLimitMax, "classified window bounded")
 	ascii, latin1 := true, true
 	for i := 0; i < len(buf) && latin1; i++ {
 		t := textChars[ebcdicToASCII[buf[i]]]
