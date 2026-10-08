@@ -105,11 +105,11 @@ func (p *jsonParser) step() (ok, done bool) {
 	if p.depth == 0 {
 		return p.scalarOrOpen()
 	}
-	f := &p.stack[p.depth-1]
+	f := &p.stack[p.depth-1] // frame
 	if p.i >= len(p.uc) {
 		return false, false
 	}
-	c := p.uc[p.i]
+	c := p.uc[p.i] // char
 	switch {
 	case f.expectValue && f.object:
 		return p.objectMember(c)
@@ -158,7 +158,7 @@ func (p *jsonParser) closeFrame() (ok, done bool) {
 
 // objectMember parses `"key" :` and leaves the value to the next step.
 func (p *jsonParser) objectMember(c byte) (ok, done bool) {
-	f := &p.stack[p.depth-1]
+	f := &p.stack[p.depth-1] // frame
 	if c == '}' {
 		return p.closeObject()
 	}
@@ -186,7 +186,7 @@ func (p *jsonParser) scalarOrOpen() (ok, done bool) {
 	if p.i >= len(p.uc) {
 		return false, false
 	}
-	c := p.uc[p.i]
+	c := p.uc[p.i] // char
 	switch c {
 	case '[', '{':
 		if p.depth >= jsonMaxDepth {

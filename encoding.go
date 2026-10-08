@@ -106,7 +106,7 @@ func classify(buf []byte, limit int) encoding {
 		buf = buf[:limit]
 	}
 	invariant.Check(len(buf) <= encodingLimitMax, "classified window bounded")
-	e := encoding{n: len(buf)}
+	e := encoding{n: len(buf)} // textEncoding
 	switch {
 	case looksClass(buf, chT):
 		e.kind = encASCII
@@ -173,11 +173,11 @@ func looksUTF8WithBOM(buf []byte) int {
 }
 
 // looksUCS16 is looks_ucs16: 0 no, 1 little-endian, 2 big-endian.
-func looksUCS16(bf []byte) int {
+func looksUCS16(bf []byte) int { // window
 	if len(bf) < 2 {
 		return 0
 	}
-	bigend := 0
+	var bigend int
 	switch {
 	case bf[0] == 0xff && bf[1] == 0xfe:
 		bigend = 0
@@ -186,13 +186,13 @@ func looksUCS16(bf []byte) int {
 	default:
 		return 0
 	}
-	hi := uint32(0)
+	hi := uint32(0) // pendingSurrogate
 	for i := 2; i < len(bf)-1; i += 2 {
 		uc := uint32(bf[i]) | uint32(bf[i+1])<<8
 		if bigend == 1 {
 			uc = uint32(bf[i+1]) | uint32(bf[i])<<8
 		}
-		ok := false
+		var ok bool
 		_, hi, ok = ucs16Unit(uc, hi)
 		if !ok {
 			return 0
@@ -203,7 +203,7 @@ func looksUCS16(bf []byte) int {
 
 // ucs16Unit validates one UTF-16 unit given a pending high surrogate and
 // returns the character, the new pending surrogate and whether it is text.
-func ucs16Unit(uc, hi uint32) (uint32, uint32, bool) {
+func ucs16Unit(uc, hi uint32) (uint32, uint32, bool) { // codeUnit
 	invariant.Check(hi <= 0x400, "pending surrogate index in range")
 	if uc == 0xfffe || uc == 0xffff || (uc >= 0xfdd0 && uc <= 0xfdef) {
 		return 0, 0, false
@@ -228,11 +228,11 @@ func ucs16Unit(uc, hi uint32) (uint32, uint32, bool) {
 }
 
 // looksUCS32 is looks_ucs32: 0 no, 1 little-endian, 2 big-endian.
-func looksUCS32(bf []byte) int {
+func looksUCS32(bf []byte) int { // window
 	if len(bf) < 4 {
 		return 0
 	}
-	bigend := 0
+	var bigend int
 	switch {
 	case bf[0] == 0xff && bf[1] == 0xfe && bf[2] == 0 && bf[3] == 0:
 		bigend = 0
@@ -312,7 +312,7 @@ type textDecoder struct {
 
 func newTextDecoder(buf []byte, e encoding) textDecoder {
 	invariant.Check(e.n <= len(buf), "classified length within the window")
-	d := textDecoder{buf: buf[:e.n], kind: e.kind}
+	d := textDecoder{buf: buf[:e.n], kind: e.kind} // decoder
 	switch e.kind {
 	case encUTF8BOM:
 		d.i = 3
@@ -367,7 +367,7 @@ func (d *textDecoder) nextUTF8() (uint32, bool) {
 	if d.i >= len(d.buf) {
 		return 0, false
 	}
-	b := d.buf[d.i]
+	b := d.buf[d.i] // leadByte
 	d.i++
 	if b&0x80 == 0 {
 		return uint32(b), true
@@ -376,7 +376,7 @@ func (d *textDecoder) nextUTF8() (uint32, bool) {
 	if !ok {
 		return 0, false
 	}
-	c := uint32(b) & (0x3f >> uint(following))
+	c := uint32(b) & (0x3f >> uint(following)) // codePoint
 	for n := 0; n < following; n++ {
 		if d.i >= len(d.buf) {
 			return 0, false
@@ -392,7 +392,7 @@ func (d *textDecoder) nextUTF16() (uint32, bool) {
 	if d.i >= len(d.buf)-1 {
 		return 0, false
 	}
-	uc := uint32(d.buf[d.i]) | uint32(d.buf[d.i+1])<<8
+	uc := uint32(d.buf[d.i]) | uint32(d.buf[d.i+1])<<8 // codeUnit
 	if d.kind == encUTF16BE {
 		uc = uint32(d.buf[d.i+1]) | uint32(d.buf[d.i])<<8
 	}
@@ -410,7 +410,7 @@ func (d *textDecoder) nextUTF16() (uint32, bool) {
 
 // encodeUTF8 is ascmagic.c's encode_utf8 for one character; it returns
 // the bytes written, 0 when the character cannot be encoded.
-func encodeUTF8(dst []byte, c uint32) int {
+func encodeUTF8(dst []byte, c uint32) int { // codePoint
 	switch {
 	case c <= 0x7f:
 		if len(dst) < 1 {
@@ -448,7 +448,7 @@ func encodeUTF8(dst []byte, c uint32) int {
 }
 
 // encodeUTF8Long is the historical 5- and 6-byte forms.
-func encodeUTF8Long(dst []byte, c uint32) int {
+func encodeUTF8Long(dst []byte, c uint32) int { // codePoint
 	switch {
 	case c <= 0x3ffffff:
 		if len(dst) < 5 {

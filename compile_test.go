@@ -35,7 +35,7 @@ func TestListOracle(t *testing.T) {
 	if got == string(want) {
 		return
 	}
-	gl, wl := strings.Split(got, "\n"), strings.Split(string(want), "\n")
+	gl, wl := strings.Split(got, "\n"), strings.Split(string(want), "\n") // wantLines
 	shown := 0
 	for i := 0; i < len(gl) && i < len(wl) && shown < 20; i++ {
 		if gl[i] != wl[i] {

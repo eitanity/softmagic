@@ -79,7 +79,7 @@ func CompileSources(hash string, srcs []Source, o CompileOptions) (*Database, er
 	if len(srcs) == 0 {
 		return nil, &CompileError{File: "", Line: 0, Msg: "no rule sources"}
 	}
-	c := compiler{sourceDir: o.SourceDir, tables: newTypeTables(), base: o.Base, hash: hash}
+	c := compiler{sourceDir: o.SourceDir, tables: newTypeTables(), base: o.Base, hash: hash} // compiler
 	if c.sourceDir == "" {
 		c.sourceDir = "magic/Magdir"
 	}
@@ -100,7 +100,7 @@ func (c *compiler) loadFile(name string, data []byte) error {
 	invariant.Check(name != "", "rule file has a name")
 	file := c.sourceDir + "/" + name
 	lineno := uint32(0)
-	end := 0
+	var end int
 	for start := 0; start < len(data); start = end + 1 {
 		end = start
 		for ; end < len(data) && data[end] != '\n'; end++ {
@@ -128,7 +128,7 @@ func (c *compiler) loadLine(file string, lineno uint32, line []byte) error {
 	// A final line with no newline keeps the previous line number, as the
 	// reference counts (a one-line file without a newline is line 0).
 	invariant.Check(len(line) > 0 && line[0] != '#', "parsable line")
-	p := lineParser{line: line, file: file, lineno: lineno, tables: &c.tables, dump: c.dump}
+	p := lineParser{line: line, file: file, lineno: lineno, tables: &c.tables, dump: c.dump} // parser
 	if len(line) >= 2 && line[0] == '!' && line[1] == ':' {
 		return c.annotate(&p)
 	}
@@ -184,16 +184,16 @@ func (c *compiler) flush() {
 // finish sets test types, sorts each set and coalesces into a Database.
 func (c *compiler) finish() (*Database, error) {
 	invariant.Check(c.cur == nil, "no entry under construction at finish")
-	db := &Database{
+	db := &Database{ // database
 		hash: c.hash, sourceDir: c.sourceDir,
 		files: c.files, names: map[string]entry{}, pool: newScanPool(),
 	}
-	m := dbMap{}
-	for s := 0; s < 2; s++ {
+	m := dbMap{}             // dbMap
+	for s := 0; s < 2; s++ { // setIndex
 		ents := c.sets[s]
 		sort.Stable(bySortOrder(ents))
 		m.sets[s] = make([]entry, len(ents))
-		for i := range ents {
+		for i := range ents { // entryIndex
 			e := entry{first: smallInt32(len(db.recs)), count: smallInt32(len(ents[i].recs)),
 				strength: smallInt32(ents[i].strength)}
 			m.sets[s][i] = e
@@ -215,10 +215,10 @@ func (c *compiler) finish() (*Database, error) {
 }
 
 // appendLines adds an entry's lines and their Go-side metadata.
-func (c *compiler) appendLines(db *Database, p *pending) {
+func (c *compiler) appendLines(db *Database, p *pending) { // database
 	invariant.Check(len(p.recs) > 0 && p.recs[0].contLevel == 0, "entry starts with a first line")
 	for i := range p.recs {
-		r := &p.recs[i]
+		r := &p.recs[i] // lineRec
 		meta := lineMeta{file: p.file, rx: -1}
 		if r.typ == tRegex {
 			src := translateRegex(r.valueString(), r.strFlags())
@@ -232,10 +232,10 @@ func (c *compiler) appendLines(db *Database, p *pending) {
 
 // checkUses verifies every "use" names a compiled "name" entry, which the
 // reference only discovers at match time.
-func (c *compiler) checkUses(db *Database) error {
+func (c *compiler) checkUses(db *Database) error { // database
 	invariant.Check(len(db.recs) == len(db.meta), "meta parallel to records")
-	for i := range db.recs {
-		r := &db.recs[i]
+	for i := range db.recs { // recIndex
+		r := &db.recs[i] // lineRec
 		if r.typ != tUse {
 			continue
 		}
@@ -284,7 +284,7 @@ func imageGreater(a, b *[recordSize]byte) bool {
 // setTestType is set_test_type applied to an entry's first line, which is
 // the only line the reference consults (its loop runs over entries whose
 // first line always has cont_level 0).
-func setTestType(r *lineRec) {
+func setTestType(r *lineRec) { // lineRec
 	invariant.Check(r.contLevel == 0, "test type set on a first line")
 	switch {
 	case isFixedWidth(r.typ) || r.typ == tDer || r.typ == tOctal:
@@ -314,7 +314,7 @@ func setTestType(r *lineRec) {
 }
 
 // annotate handles a "!:" line: mime, apple, ext or strength.
-func (c *compiler) annotate(p *lineParser) error {
+func (c *compiler) annotate(p *lineParser) error { // parser
 	if c.cur == nil {
 		return p.errorf("no current entry for " + string(p.line))
 	}
@@ -347,7 +347,7 @@ const (
 
 // extraField returns the target array, its permitted extra characters and
 // whether the reference NUL-terminates it (only MIME is).
-func extraField(r *lineRec, k extraKind) (buf []byte, extra string, nulTerm bool) {
+func extraField(r *lineRec, k extraKind) (buf []byte, extra string, nulTerm bool) { // lineRec
 	switch k {
 	case extraApple:
 		return r.apple[:], "!+-./?", false
@@ -373,7 +373,7 @@ func goodChar(c byte, extra string) bool {
 // parseExtra is parse_extra: copy the annotation's value into the last
 // line's field, refusing a second annotation of the same kind and an
 // annotation on a line with no description.
-func (c *compiler) parseExtra(p *lineParser, k extraKind) error {
+func (c *compiler) parseExtra(p *lineParser, k extraKind) error { // parser
 	invariant.Check(len(c.cur.lines) > 0, "annotated entry has lines")
 	r := &c.cur.lines[len(c.cur.lines)-1]
 	buf, extra, nulTerm := extraField(r, k)
@@ -384,7 +384,7 @@ func (c *compiler) parseExtra(p *lineParser, k extraKind) error {
 		return p.errorf("current entry does not yet have a description for adding an annotation")
 	}
 	p.i = eatSpace(p.line, p.i)
-	n := 0
+	n := 0 // extraLength
 	for ; n < len(buf) && p.i < len(p.line) && goodChar(p.line[p.i], extra); n++ {
 		buf[n] = p.line[p.i]
 		p.i++
@@ -400,9 +400,9 @@ func (c *compiler) parseExtra(p *lineParser, k extraKind) error {
 
 // parseStrength is parse_strength: "!:strength OP VALUE" on the entry's
 // first line.
-func (c *compiler) parseStrength(p *lineParser) error {
+func (c *compiler) parseStrength(p *lineParser) error { // parser
 	invariant.Check(len(c.cur.lines) > 0, "annotated entry has lines")
-	r := &c.cur.lines[0]
+	r := &c.cur.lines[0] // firstLine
 	if r.factorOp != 0 {
 		return p.errorf("current entry already has a strength type: " + string(r.factorOp) +
 			" " + strconv.Itoa(int(r.factor)))

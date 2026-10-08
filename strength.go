@@ -15,10 +15,10 @@ const mult = 10 // MULT
 // nonMagic counts the characters of a regex that are not magic: escaped
 // characters and bracket expressions count 1, repetition and anchor
 // characters 0, braced expressions 0, everything else 1; at least 1.
-func nonMagic(s string) int {
+func nonMagic(s string) int { // pattern
 	invariant.Check(len(s) < maxString, "pattern fits MAXstring")
-	rv := 0
-	for i := 0; i < len(s); i++ {
+	rv := 0                       // nonMagicCount
+	for i := 0; i < len(s); i++ { // patIndex
 		switch s[i] {
 		case '\\':
 			if i+1 < len(s) {
@@ -76,7 +76,7 @@ func maxInt(a, b int) int {
 
 // strength1 is apprentice_magic_strength_1: the per-line score before the
 // entry's !:strength factor is applied.
-func strength1(r *record) int {
+func strength1(r *record) int { // rule
 	invariant.Check(r.contLevel == 0, "strength of a first line")
 	val := 2 * mult
 	switch {
@@ -113,7 +113,7 @@ func strength1(r *record) int {
 }
 
 // entryStrength is file_magic_strength for the entry whose first line is r.
-func entryStrength(r *record) int {
+func entryStrength(r *record) int { // rule
 	invariant.Check(r.contLevel == 0, "strength of a first line")
 	val := strength1(r)
 	switch r.factorOp {

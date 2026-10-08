@@ -21,7 +21,7 @@ func TestAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := joinForTest(base, extra)
+	db, err := joinForTest(base, extra) // database
 	if err != nil {
 		t.Fatal(err)
 	}

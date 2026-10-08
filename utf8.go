@@ -50,7 +50,7 @@ const (
 
 // utf8FirstClass is the class of a first byte >= 0xC0 (lower bytes are AS
 // or XX by rule and are handled inline).
-func utf8FirstClass(b byte) uint8 {
+func utf8FirstClass(b byte) uint8 { // leadByte
 	switch {
 	case b < 0x80:
 		return u8AS
@@ -97,8 +97,8 @@ func utf8AcceptRange(class uint8) (lo, hi byte) {
 func looksUTF8(buf []byte) int {
 	invariant.Check(len(buf) <= encodingLimitMax || len(buf) <= maxString, "classified window bounded")
 	gotone, ctrl := false, false
-	for i := 0; i < len(buf); i++ {
-		b := buf[i]
+	for i := 0; i < len(buf); i++ { // byteIdx
+		b := buf[i] // octet
 		if b&0x80 == 0 {
 			if textChars[b] != chT {
 				ctrl = true
@@ -129,9 +129,9 @@ func looksUTF8(buf []byte) int {
 // buf[i]; it returns the index of the last byte consumed and whether every
 // byte seen was a valid continuation. Running past the buffer is not an
 // error: the index is then len(buf).
-func utf8Continuation(buf []byte, i, following int, class uint8) (int, bool) {
+func utf8Continuation(buf []byte, i, following int, class uint8) (int, bool) { // pos
 	invariant.Check(following >= 1 && following <= 5, "continuation count")
-	lo, hi := utf8AcceptRange(class)
+	lo, hi := utf8AcceptRange(class) // hiBound
 	for n := 0; n < following; n++ {
 		i++
 		if i >= len(buf) {
@@ -149,7 +149,7 @@ func utf8Continuation(buf []byte, i, following int, class uint8) (int, bool) {
 
 // utf8Following is the continuation-byte count the reference derives from
 // the leading bits (it accepts the historical 5- and 6-byte forms).
-func utf8Following(b byte) (int, bool) {
+func utf8Following(b byte) (int, bool) { // leadByte
 	switch {
 	case utf8FirstClass(b) == u8XX:
 		return 0, false

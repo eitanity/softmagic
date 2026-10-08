@@ -10,6 +10,7 @@ package softmagic
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 
@@ -40,23 +41,30 @@ func (db *Database) IdentifyPrefix(ctx context.Context, prefix []byte, o Options
 // first MaxBytes are consulted as Identify would, and the ELF built-in may
 // read headers beyond them, as file(1) does through its file descriptor.
 // Examined.Bytes counts only the window.
-func (db *Database) IdentifyAt(ctx context.Context, r io.ReaderAt, size int64, o Options) Result {
+func (db *Database) IdentifyAt(ctx context.Context, r io.ReaderAt, size int64, o Options) Result { // options
 	if !invariant.Check(db != nil && db.pool != nil, "identify on a compiled database") || r == nil || size < 0 {
-		return invariantResult()
+		return invariantResult(o)
 	}
 	maxBytes := o.maxBytes()
-	n := size
+	n := size // readLength
 	if n > int64(maxBytes) {
 		n = int64(maxBytes)
 	}
-	s := db.pool.get(db, ctx, nil, o)
+	s := db.pool.get(db, ctx, nil, o) // scanState
 	if cap(s.inbuf) < int(n) {
 		s.inbuf = make([]byte, n)
 	}
 	got, err := r.ReadAt(s.inbuf[:n], 0)
-	if err != nil && got < int(n) {
+	switch {
+	case err == nil || got >= int(n):
+	case errors.Is(err, io.EOF):
+		// The input is shorter than size said (a file cut short after its
+		// stat): the reference's read returns the bytes there are, and it
+		// identifies those.
+		n = int64(got)
+	default:
 		db.pool.put(s)
-		return invariantResult()
+		return invariantResult(o)
 	}
 	s.buf, s.src, s.srcSize = s.inbuf[:n], r, size
 	res := s.identify()
@@ -65,24 +73,30 @@ func (db *Database) IdentifyAt(ctx context.Context, r io.ReaderAt, size int64, o
 	return res
 }
 
-// invariantResult is the answer when the call itself was malformed.
-func invariantResult() Result {
-	return Result{Description: "data", MIME: "application/octet-stream", Charset: "binary", Phase: PhaseDefault,
+// invariantResult is the answer when the call itself was malformed or the
+// input could not be read: the default, in every list continue mode asked
+// for, so that a blank is never an answer there either.
+func invariantResult(o Options) Result {
+	r := Result{Description: "data", MIME: "application/octet-stream", Charset: "binary", Phase: PhaseDefault, // fallback
 		Examined: Examined{Truncated: TruncInvariant, ImplementsFile: ImplementsFile}}
+	if o.Continue {
+		r.Continued = Continued{Descriptions: []string{"data"}, MIMEs: []string{"application/octet-stream"},
+			Encodings: []string{"binary"}, Extensions: []string{"???"}, Apple: []string{"UNKNUNKN"}}
+	}
+	return r
 }
 
-func (db *Database) identify(ctx context.Context, data []byte, o Options, complete bool) Result {
+func (db *Database) identify(ctx context.Context, data []byte, o Options, complete bool) Result { // options
 	if !invariant.Check(db != nil && db.pool != nil, "identify on a compiled database") {
-		return Result{Description: "data", MIME: "application/octet-stream", Charset: "binary", Phase: PhaseDefault,
-			Examined: Examined{Truncated: TruncInvariant, ImplementsFile: ImplementsFile}}
+		return invariantResult(o)
 	}
 	maxBytes := o.maxBytes()
 	if len(data) > maxBytes {
 		data = data[:maxBytes]
 	}
 	invariant.Check(maxBytes >= 0 && len(data) <= maxBytes, "window within MaxBytes")
-	s := db.pool.get(db, ctx, data, o)
-	r := s.identify()
+	s := db.pool.get(db, ctx, data, o) // scanState
+	r := s.identify()                  // result
 	r.Examined.Complete = complete
 	if !complete {
 		r.Examined.NeedMore = s.oobHit || s.maxRead >= len(data)
@@ -108,7 +122,7 @@ func (db *Database) identifyIndependent(data []byte) Result {
 func (s *scan) identify() Result {
 	invariant.Check(s.nframes == 0, "identify starts with no frames")
 	invariant.Check(s.outLen == 0, "identify starts with no output")
-	r := Result{Examined: Examined{DatabaseHash: s.db.hash, ImplementsFile: ImplementsFile}, Phase: PhaseDefault}
+	r := Result{Examined: Examined{DatabaseHash: s.db.hash, ImplementsFile: ImplementsFile}, Phase: PhaseDefault} // result
 	switch len(s.buf) {
 	case 0:
 		return s.finishResult(r, "empty", "application/x-empty", "binary")
@@ -116,7 +130,7 @@ func (s *scan) identify() Result {
 		return s.finishResult(r, "very short file (no magic)", "application/octet-stream", "binary")
 	default:
 	}
-	e := s.classifyMain()
+	e := s.classifyMain() // encoding
 	s.noteRead(e.n)
 	charset := e.charset()
 	if bi := s.builtins(e); bi.hit {
@@ -157,7 +171,7 @@ func (s *scan) identify() Result {
 }
 
 // finishResult fills the fields every answer carries.
-func (s *scan) finishResult(r Result, desc, mime, charset string) Result {
+func (s *scan) finishResult(r Result, desc, mime, charset string) Result { // result
 	invariant.Check(desc != "", "a blank is never an answer")
 	invariant.Check(mime != "" && charset != "", "MIME and charset always set")
 	r.Description, r.MIME, r.Charset = desc, mime, charset
@@ -184,7 +198,7 @@ func (s *scan) softmagic(win []byte, mode uint16, text bool) bool {
 	if mode == flagTextTest {
 		s.winID = windowText
 	}
-	rv := false
+	rv := false // anyMatched
 	if s.cont {
 		// file_softmagic's locals, fresh for each call.
 		s.printedSomething, s.needSeparator, s.firstline = false, false, true
@@ -229,7 +243,7 @@ func (s *scan) endWindow() {
 
 // mimeResult reproduces `file -i`: the first MIME annotation on the
 // winning path; else the text phase in MIME mode; else the default.
-func (s *scan) mimeResult(found, textFound bool, e encoding) string {
+func (s *scan) mimeResult(found, textFound bool, e encoding) string { // encoding
 	invariant.Check(int(s.mimeRec) < len(s.db.meta), "MIME record within the database")
 	if s.mimeRec >= 0 {
 		return varexpand(s.db.mimeOf(s.mimeRec), s.execBit)
@@ -252,12 +266,12 @@ func (s *scan) mimeResult(found, textFound bool, e encoding) string {
 
 // textPhaseWouldRun says whether the text phase reaches its "text/plain"
 // line: the trimmed window is text.
-func (s *scan) textPhaseWouldRun(e encoding) bool {
+func (s *scan) textPhaseWouldRun(e encoding) bool { // encoding
 	if s.excluded(CheckText) {
 		return false
 	}
 	buf := s.buf
-	n := trimNuls(buf)
+	n := trimNuls(buf) // textLength
 	if n&1 != 0 && len(buf)&1 == 0 {
 		n++
 	}
@@ -286,7 +300,7 @@ func (s *scan) extResult(found, textFound bool, e encoding) []string {
 // detector answered the description: the detectors do not run in those
 // modes, so the rules do, binary phase then text phase, until an
 // annotation is met. It returns the annotated record, -1 for none.
-func (s *scan) annotPipeline(e encoding, mode matchMode) int32 {
+func (s *scan) annotPipeline(e encoding, mode matchMode) int32 { // encoding
 	invariant.Check(mode == modeExt || mode == modeApple, "annotation mode")
 	s.mode = mode
 	s.resetOutput()

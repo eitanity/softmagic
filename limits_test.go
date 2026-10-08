@@ -16,7 +16,7 @@ import (
 // The expectations in this file are file 5.48's answers for the same input
 // and flags (file -b with -P or -e), built from its release tarball.
 
-func identifyCorpus(t *testing.T, db *Database, name string, o Options) Result {
+func identifyCorpus(t *testing.T, db *Database, name string, o Options) Result { // database
 	t.Helper()
 	data, err := os.ReadFile(filepath.Clean(filepath.Join("testdata/corpus", name)))
 	if err != nil {
@@ -31,7 +31,7 @@ func identifyCorpus(t *testing.T, db *Database, name string, o Options) Result {
 // the message: "OpenPGP Public Key name use count (1) exceeded".
 func TestHardLimitFailure(t *testing.T) {
 	db := compileMagdir(t)
-	r := identifyCorpus(t, db, "pgp-binary-key-v4-dsa.testfile", Options{Limits: Limits{Name: 1}})
+	r := identifyCorpus(t, db, "pgp-binary-key-v4-dsa.testfile", Options{Limits: Limits{Name: 1}}) // result
 	want := Failure{Message: "name use count (1) exceeded", Buffer: "OpenPGP Public Key"}
 	if r.Failures.Description != want || r.Description != "OpenPGP Public Key" {
 		t.Errorf("description: %+v %q", r.Failures.Description, r.Description)
@@ -54,8 +54,8 @@ func TestHardLimitFailure(t *testing.T) {
 // and an indirect limit of one stops its description inside the ID3
 // indirect match, whose own buffer is empty.
 func TestHardLimitPerMode(t *testing.T) {
-	db := compileMagdir(t)
-	r := identifyCorpus(t, db, "JW07022A.mp3.testfile", Options{Limits: Limits{Name: 1}})
+	db := compileMagdir(t)                                                                // database
+	r := identifyCorpus(t, db, "JW07022A.mp3.testfile", Options{Limits: Limits{Name: 1}}) // result
 	if r.Failures != (Failures{}) || r.MIME != "audio/mpeg" ||
 		r.Description != "Audio file with ID3 version 2.2.0, contains: MPEG ADTS, layer III, v1, 96 kbps, 44.1 kHz, Monaural" {
 		t.Errorf("name=1: %q %q %+v", r.Description, r.MIME, r.Failures)
@@ -81,8 +81,8 @@ func TestLimitsChangeAnswers(t *testing.T) {
 
 // TestExclude: each exclusion is file -e's.
 func TestExclude(t *testing.T) {
-	db := compileMagdir(t)
-	for _, c := range []struct {
+	db := compileMagdir(t)       // database
+	for _, c := range []struct { // testCase
 		desc, mime, cs string
 		ex             Checks
 	}{
@@ -102,7 +102,7 @@ func TestExclude(t *testing.T) {
 // the window short of the file; and the lines after it read there too.
 // The gzip trailer holds the original size, here 10000.
 func TestTailPastWindow(t *testing.T) {
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	var buf bytes.Buffer
 	w := gzip.NewWriter(&buf)
 	if _, err := w.Write(bytes.Repeat([]byte("softmagic "), 1000)); err != nil {

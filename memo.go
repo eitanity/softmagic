@@ -77,7 +77,7 @@ func (s *scan) regionKey(kind uint8, rec int32) memoKey {
 // nextCandidate is the first index in b holding c1 or c2 (c2 may equal
 // c1), or -1.
 func nextCandidate(b []byte, c1, c2 byte) int {
-	i := bytes.IndexByte(b, c1)
+	i := bytes.IndexByte(b, c1) // firstIndex
 	if c2 == c1 {
 		return i
 	}
@@ -164,7 +164,7 @@ func (r *regexSlot) atLineStart(region []byte) bool {
 }
 
 // prefixOf reports whether b begins with one of the literals.
-func (r *regexSlot) prefixOf(b []byte) bool {
+func (r *regexSlot) prefixOf(b []byte) bool { // input
 	invariant.Check(len(r.lits) != 0, "literals given")
 	for _, lit := range r.lits {
 		if len(lit) > len(b) {

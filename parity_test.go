@@ -15,7 +15,7 @@ import (
 // outputs. The figure is logged; divergences are listed for
 // classification.
 func TestParityCorpus(t *testing.T) {
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	files, err := filepath.Glob("testdata/corpus/*.testfile")
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestParityCorpus(t *testing.T) {
 		t.Skip("no corpus")
 	}
 	var okDesc, okMime, okExt, okApple, total int
-	for _, f := range files {
+	for _, f := range files { // fileName
 		data, err := os.ReadFile(filepath.Clean(f))
 		if err != nil {
 			t.Fatal(err)
@@ -38,7 +38,7 @@ func TestParityCorpus(t *testing.T) {
 			continue
 		}
 		total++
-		r := db.Identify(data)
+		r := db.Identify(data) // result
 		name := filepath.Base(f)
 		if r.Description == lines[0] {
 			okDesc++
@@ -77,7 +77,7 @@ func TestParityCorpus(t *testing.T) {
 }
 
 func TestIdentifyBasics(t *testing.T) {
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	cases := []struct {
 		in   string
 		want string

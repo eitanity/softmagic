@@ -144,7 +144,7 @@ func (l Limits) resolve() limits {
 }
 
 // limitValue is one parameter: 0 the default, negative 0, at most hi.
-func limitValue(v, def, hi int) int {
+func limitValue(v, def, hi int) int { // value
 	switch {
 	case v == 0:
 		return def
@@ -293,7 +293,7 @@ func newScanPool() *scanPool {
 	}}}
 }
 
-func (sp *scanPool) get(db *Database, ctx context.Context, buf []byte, o Options) *scan {
+func (sp *scanPool) get(db *Database, ctx context.Context, buf []byte, o Options) *scan { // database
 	invariant.Check(db != nil, "scan for a database")
 	s, ok := sp.p.Get().(*scan)
 	if !invariant.Check(ok && s != nil, "pool holds scans") {
@@ -309,7 +309,7 @@ func (sp *scanPool) put(s *scan) {
 }
 
 // reset zeroes the per-call fields; the scratch buffers are kept.
-func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) {
+func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) { // options
 	invariant.Check(db != nil, "reset with a database")
 	invariant.Check(o.MaxBytes <= 0 || len(buf) <= o.MaxBytes, "window within MaxBytes")
 	s.db, s.buf, s.ctx = db, buf, ctx
@@ -348,7 +348,7 @@ func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) {
 // utf8Scratch returns the UTF-8 re-encoding buffer with room for n bytes.
 // A pooled scan grows its buffers once, to a cap, and keeps them:
 // allocation happens at initialisation, not per call in steady state.
-func (s *scan) utf8Scratch(n int) []byte {
+func (s *scan) utf8Scratch(n int) []byte { // size
 	invariant.Check(n >= 0, "size non-negative")
 	if n > utf8ScratchSize {
 		n = utf8ScratchSize
@@ -361,7 +361,7 @@ func (s *scan) utf8Scratch(n int) []byte {
 
 // rxScratch returns the regex transcoding and printing buffer with room
 // for n bytes.
-func (s *scan) rxScratch(n int) []byte {
+func (s *scan) rxScratch(n int) []byte { // size
 	invariant.Check(n >= 0, "size non-negative")
 	if n > regexScratchSize {
 		n = regexScratchSize
@@ -418,7 +418,7 @@ func (s *scan) noteRead(end int) {
 
 // oob is the reference's offset_oob: whether i bytes at offset o lie
 // outside a window of n bytes. A failure is remembered for NeedMore.
-func (s *scan) oob(n int, o int64, i int) bool {
+func (s *scan) oob(n int, o int64, i int) bool { // readLength
 	invariant.Check(n >= 0, "window length non-negative")
 	if o < 0 || o > int64(n) || int64(i) > int64(n)-o {
 		s.oobHit = true
@@ -446,7 +446,7 @@ func (s *scan) timeUp() bool {
 // Output helpers: the reference's file_printf family over a fixed buffer.
 
 // write appends b, truncating at the cap (reported as Truncated "output").
-func (s *scan) write(b []byte) {
+func (s *scan) write(b []byte) { // output
 	invariant.Check(s.outLen <= maxOutput, "output length within cap")
 	if s.abort != "" {
 		return // after an error the reference prints nothing more
@@ -470,7 +470,7 @@ func (s *scan) writeString(str string) {
 	}
 }
 
-func (s *scan) writeByte(c byte) {
+func (s *scan) writeByte(c byte) { // char
 	if s.abort != "" {
 		return
 	}

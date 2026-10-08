@@ -12,9 +12,9 @@ import "github.com/eitanity/softmagic/internal/invariant"
 // any, is valid for the record's type.
 func (p *lineParser) checkFormat() error {
 	invariant.Check(p.rec != nil, "record to check")
-	r := p.rec
-	d := r.desc[:]
-	i := 0
+	r := p.rec     // rule
+	d := r.desc[:] // description
+	i := 0         // cursor
 	for ; i < len(d) && d[i] != 0 && d[i] != '%'; i++ {
 	}
 	if i >= len(d) || d[i] == 0 {
@@ -39,7 +39,7 @@ func (p *lineParser) checkFormat() error {
 
 // checkFormatType validates the conversion starting at d[i] (after '%') and
 // returns the index after it.
-func checkFormatType(d []byte, i int, t fileType) (int, bool) {
+func checkFormatType(d []byte, i int, t fileType) (int, bool) { // fileType
 	invariant.Check(i > 0, "conversion follows a percent")
 	if at(d, i) == 0 {
 		return i, false
@@ -73,7 +73,7 @@ func numFormatH(t fileType) int {
 }
 
 // checkLen is the CHECKLEN macro: at most five digits, value at most 1024.
-func checkLen(d []byte, i int) (int, bool) {
+func checkLen(d []byte, i int) (int, bool) { // cursor
 	invariant.Check(i >= 0, "cursor non-negative")
 	invariant.Check(i <= len(d), "cursor within the description")
 	n, cnt := 0, 0
@@ -84,12 +84,12 @@ func checkLen(d []byte, i int) (int, bool) {
 	return i, cnt <= 5 && n <= 1024
 }
 
-func checkNumFormat(d []byte, i int, quad bool, h int) (int, bool) {
+func checkNumFormat(d []byte, i int, quad bool, h int) (int, bool) { // sizeClass
 	invariant.Check(i >= 0, "cursor non-negative")
 	invariant.Check(i <= len(d), "cursor within the description")
 	for ; i < len(d) && isNumFlag(d[i]); i++ {
 	}
-	i, ok := checkLen(d, i)
+	i, ok := checkLen(d, i) // valid
 	if !ok {
 		return i, false
 	}
@@ -116,7 +116,7 @@ func checkNumFormat(d []byte, i int, quad bool, h int) (int, bool) {
 	}
 }
 
-func checkFloatFormat(d []byte, i int) (int, bool) {
+func checkFloatFormat(d []byte, i int) (int, bool) { // description
 	invariant.Check(i >= 0, "cursor non-negative")
 	invariant.Check(i <= len(d), "cursor within the description")
 	if at(d, i) == '-' {
@@ -125,7 +125,7 @@ func checkFloatFormat(d []byte, i int) (int, bool) {
 	if at(d, i) == '.' {
 		i++
 	}
-	i, ok := checkLen(d, i)
+	i, ok := checkLen(d, i) // valid
 	if !ok {
 		return i, false
 	}
@@ -146,7 +146,7 @@ func checkFloatFormat(d []byte, i int) (int, bool) {
 
 func isNumFlag(c byte) bool { return c == '+' || c == '-' || c == '.' || c == '#' }
 
-func checkStrFormat(d []byte, i int) (int, bool) {
+func checkStrFormat(d []byte, i int) (int, bool) { // description
 	invariant.Check(i >= 0, "cursor non-negative")
 	invariant.Check(i <= len(d), "cursor within the description")
 	if at(d, i) == '-' {

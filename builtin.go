@@ -23,7 +23,7 @@ type builtinResult struct {
 
 // builtins runs the detectors in the reference's order (tar, JSON, CSV,
 // SIMH; CDF and ELF are not implemented yet) and returns the first hit.
-func (s *scan) builtins(e encoding) builtinResult {
+func (s *scan) builtins(e encoding) builtinResult { // encoding
 	invariant.Check(len(s.buf) >= 2, "detectors run on two or more bytes")
 	if r := detectTar(s.buf); r.hit && !s.excluded(CheckTar) {
 		return r
@@ -99,14 +99,14 @@ func cStringEquals(field []byte, s string) bool {
 
 // tarOctal is from_oct: leading spaces, octal digits, then space or NUL;
 // -1 for a blank or malformed field.
-func tarOctal(f []byte) int {
-	i := 0
+func tarOctal(f []byte) int { // tarField
+	i := 0 // fieldIndex
 	for ; i < len(f) && cIsSpace(f[i]); i++ {
 	}
 	if i == len(f) {
 		return -1
 	}
-	v := 0
+	v := 0 // octalValue
 	for ; i < len(f) && f[i] >= '0' && f[i] <= '7'; i++ {
 		v = v<<3 | int(f[i]-'0')
 	}
@@ -129,9 +129,9 @@ func detectCSV(buf []byte, e encoding) builtinResult {
 }
 
 // csvParse is csv_parse.
-func csvParse(uc []byte) bool {
+func csvParse(uc []byte) bool { // input
 	invariant.Check(uc != nil || len(uc) == 0, "input slice")
-	nf, tf, nl := 0, 0, 0
+	nf, tf, nl := 0, 0, 0 // firstLineFields
 	for i := 0; i < len(uc); i++ {
 		switch uc[i] {
 		case '"':
@@ -160,7 +160,7 @@ func csvParse(uc []byte) bool {
 
 // csvEatQuote is eatquote: skip to the end of a quoted field, where a
 // doubled quote is an escape; it returns the index after the field.
-func csvEatQuote(uc []byte, i int) int {
+func csvEatQuote(uc []byte, i int) int { // cursor
 	invariant.Check(i >= 0 && i <= len(uc), "cursor within the input")
 	quote := false
 	for ; i < len(uc); i++ {
@@ -207,9 +207,9 @@ func simhLen(buf []byte, i int) (n uint32, ok bool) {
 // lengths, tapemarks of zero length, ending at end of medium.
 func simhParse(buf []byte) bool {
 	invariant.Check(simhTapemarks > 0, "tapemark limit positive")
-	st := simhState{}
+	st := simhState{} // tapeState
 	for ; st.i <= len(buf)-4; st.i += 4 {
-		nbytes, ok := simhLen(buf, st.i)
+		nbytes, ok := simhLen(buf, st.i) // lengthOK
 		if !ok {
 			return false
 		}
@@ -248,7 +248,7 @@ type simhState struct {
 
 // record consumes a data record of n bytes and its trailing length; stop
 // is true when the input ends inside it.
-func (st *simhState) record(buf []byte, n int) (stop, ok bool) {
+func (st *simhState) record(buf []byte, n int) (stop, ok bool) { // recordLength
 	invariant.Check(n > 0 && st.i >= 0, "record length positive and cursor non-negative")
 	invariant.Check(n >= 0 && st.i >= 0, "record length and cursor non-negative")
 	if n > len(buf) || len(buf)-st.i-4 < n+4 {

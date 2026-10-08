@@ -105,7 +105,7 @@ func (e *elfState) note(data []byte, offset, align int) int {
 }
 
 // handleNote tries each note handler once, as donote does.
-func (e *elfState) handleNote(n *elfNote, data []byte, doff int) {
+func (e *elfState) handleNote(n *elfNote, data []byte, doff int) { // note
 	if e.flags&elfDidOSNote == 0 && e.osNote(n) {
 		return
 	}
@@ -130,7 +130,7 @@ func (e *elfState) handleNote(n *elfNote, data []byte, doff int) {
 }
 
 // bidNote is do_bid_note: GNU and Go build ids.
-func (e *elfState) bidNote(n *elfNote) bool {
+func (e *elfState) bidNote(n *elfNote) bool { // note
 	if n.nameIs("GNU") && n.typ == ntGNUBuildID && len(n.desc) >= 4 && len(n.desc) <= 20 {
 		e.flags |= elfDidBuildID
 		btype := "unknown"
@@ -165,9 +165,9 @@ func copyStr(b []byte, width int) string {
 }
 
 // osNote is do_os_note.
-func (e *elfState) osNote(n *elfNote) bool {
+func (e *elfState) osNote(n *elfNote) bool { // note
 	invariant.Check(e.flags&elfDidOSNote == 0, "OS note not yet seen")
-	d := n.desc
+	d := n.desc // descriptor
 	switch {
 	case n.nameIs("SuSE") && n.typ == ntGNUVersion && len(d) == 2:
 		e.flags |= elfDidOSNote
@@ -250,7 +250,7 @@ func (e *elfState) netbsdVersion(desc uint32) {
 func (e *elfState) freebsdVersion(desc uint32) {
 	invariant.Check(e.flags&elfDidOSNote != 0, "OS note flagged by the caller")
 	e.printf(", for FreeBSD")
-	d := uint64(desc)
+	d := uint64(desc) // descValue
 	switch {
 	case desc == 460002:
 		e.printf(" 4.6.2")
@@ -311,7 +311,7 @@ func (e *elfState) flagList(desc uint32, prefix string, names [6]string) {
 	}
 	e.printf(prefix)
 	did := 0
-	for i := range names {
+	for i := range names { // bitIndex
 		if names[i] == "" || desc&(1<<uint(i)) == 0 {
 			continue
 		}
@@ -324,8 +324,8 @@ func (e *elfState) flagList(desc uint32, prefix string, names [6]string) {
 }
 
 // netbsdNote is the NetBSD-named tail of donote.
-func (e *elfState) netbsdNote(n *elfNote) {
-	d := n.desc
+func (e *elfState) netbsdNote(n *elfNote) { // note
+	d := n.desc // descriptor
 	if len(d) > 100 {
 		d = d[:100]
 	}
@@ -355,7 +355,7 @@ func (e *elfState) netbsdNote(n *elfNote) {
 }
 
 // coreNote is do_core_note.
-func (e *elfState) coreNote(n *elfNote, data []byte, doff int) bool {
+func (e *elfState) coreNote(n *elfNote, data []byte, doff int) bool { // note
 	invariant.Check(doff >= 0 && doff <= len(data), "descriptor within the buffer")
 	style := -1
 	switch {
@@ -382,12 +382,12 @@ func (e *elfState) coreNote(n *elfNote, data []byte, doff int) bool {
 
 // netbsdCore prints a NetBSD core's process info from struct
 // NetBSD_elfcore_procinfo (name at 124, siglwp at 156).
-func (e *elfState) netbsdCore(n *elfNote) bool {
+func (e *elfState) netbsdCore(n *elfNote) bool { // note
 	invariant.Check(n.nameIs("NetBSD-CORE") || len(n.name) >= 11, "NetBSD core note")
 	if n.typ != ntNetBSDCoreProc {
 		return false
 	}
-	var pi [160]byte
+	var pi [160]byte // psinfo
 	copy(pi[:], n.desc)
 	name := printable(e.s.rxScratch(printableMax), pi[124:156], 31, e.s.raw)
 	e.printf(", from '" + string(name) + "', pid=" + u10(uint64(e.u32(pi[80:84]))) +
@@ -429,12 +429,12 @@ func (e *elfState) prpsOffsets() []int {
 
 // svr4Core prints an SVR4-style core's command name, trying the known
 // offsets as the reference does.
-func (e *elfState) svr4Core(n *elfNote, data []byte, doff int) bool {
+func (e *elfState) svr4Core(n *elfNote, data []byte, doff int) bool { // note
 	if n.typ != ntPrpsinfo || e.flags&elfIsCore == 0 {
 		return false
 	}
 	offs := e.prpsOffsets()
-	for i := 0; i < len(offs); i++ {
+	for i := 0; i < len(offs); i++ { // offsetIndex
 		j, ok := prpsNameLen(data, doff, offs[i], len(n.desc))
 		if !ok {
 			continue
@@ -457,13 +457,13 @@ func (e *elfState) svr4Core(n *elfNote, data []byte, doff int) bool {
 // returns how many bytes it held before a NUL.
 func prpsNameLen(data []byte, doff, rel, descsz int) (int, bool) {
 	invariant.Check(rel >= 0 && descsz >= 0, "offsets non-negative")
-	j := 0
+	j := 0 // nameIndex
 	for ; j < 16; j++ {
 		noff := doff + rel + j
 		if noff >= len(data) || rel+j >= descsz {
 			return 0, false
 		}
-		c := data[noff]
+		c := data[noff] // nameChar
 		if c == 0 {
 			if j == 0 {
 				return 0, false
@@ -479,8 +479,8 @@ func prpsNameLen(data []byte, doff, rel, descsz int) (int, bool) {
 
 // adjustPrps moves to an earlier candidate when the bytes between it and
 // the match are all printable (the match was mid-string).
-func adjustPrps(data []byte, doff int, offs []int, i, j int) int {
-	for k := i + 1; k < len(offs); k++ {
+func adjustPrps(data []byte, doff int, offs []int, i, j int) int { // offsetIndex
+	for k := i + 1; k < len(offs); k++ { // otherIndex
 		if offs[k] >= offs[i] || (offs[k] == offs[i]-16 && j == 16) {
 			continue
 		}
@@ -496,7 +496,7 @@ func adjustPrps(data []byte, doff int, offs []int, i, j int) int {
 }
 
 // auxvNote is do_auxv_note for SVR4 cores.
-func (e *elfState) auxvNote(n *elfNote) bool {
+func (e *elfState) auxvNote(n *elfNote) bool { // note
 	if e.flags&(elfIsCore|elfDidCoreStyle) != elfIsCore|elfDidCoreStyle ||
 		e.flags&elfCoreStyle != osStyleSVR4 || n.typ != ntAuxv {
 		return false
@@ -540,7 +540,7 @@ func (e *elfState) stringAt(virtaddr uint64) (string, bool) {
 			e.printf(", can't read elf program header at " + strconv.FormatInt(off, 10))
 			return "", false
 		}
-		ph := e.parsePhdr(hb)
+		ph := e.parsePhdr(hb) // programHeader
 		off += int64(size)
 		if e.fsize >= 0 && offInt(ph.offset) > e.fsize {
 			continue
@@ -560,7 +560,7 @@ func (e *elfState) printableAt(at int64) (string, bool) {
 		e.printf(", can't read elf string at " + strconv.FormatInt(at, 10))
 		return "", false
 	}
-	n := 0
+	n := 0 // printableLength
 	for ; n < len(buf)-1 && buf[n] != 0 && cIsPrint(buf[n]); n++ {
 	}
 	if n == len(buf)-1 || buf[n] != 0 {
@@ -589,7 +589,7 @@ func auxvTag(typ uint64) (string, bool) {
 }
 
 // capSection is doshn's SHT_SUNW_cap case.
-func (e *elfState) capSection(st *shdrState, sh *elfShdr) bool {
+func (e *elfState) capSection(st *shdrState, sh *elfShdr) bool { // sectionState
 	switch e.machine {
 	case emSparc, emSparcV9, emIA64, em386, emAMD64:
 	default:
@@ -604,7 +604,7 @@ func (e *elfState) capSection(st *shdrState, sh *elfShdr) bool {
 	}
 	limit := clampInt(sh.size, elfShsizeMax)
 	for coff := size; coff <= limit; coff += size {
-		cb, ok := e.s.readAt(offInt(sh.offset)+int64(coff-size), size)
+		cb, ok := e.s.readAt(offInt(sh.offset)+int64(coff-size), size) // capEntry
 		if !ok {
 			return false
 		}
@@ -630,7 +630,7 @@ func (e *elfState) capSection(st *shdrState, sh *elfShdr) bool {
 }
 
 // capabilities prints the SunOS hardware and software capabilities.
-func (e *elfState) capabilities(st *shdrState) {
+func (e *elfState) capabilities(st *shdrState) { // sectionState
 	invariant.Check(st != nil, "section state present")
 	if st.capHW1 != 0 {
 		e.hardwareCaps(st.capHW1)
@@ -651,7 +651,7 @@ func (e *elfState) capabilities(st *shdrState) {
 }
 
 // hardwareCaps names the hardware capability bits for the machine.
-func (e *elfState) hardwareCaps(hw uint64) {
+func (e *elfState) hardwareCaps(hw uint64) { // hwCaps
 	invariant.Check(hw != 0, "capabilities present")
 	e.printf(", uses")
 	names := capNames(e.machine)

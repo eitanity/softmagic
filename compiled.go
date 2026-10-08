@@ -96,7 +96,7 @@ func (e *enc) str(s string) {
 
 // trimmed appends a fixed array as a u8-length-prefixed string without its
 // trailing NULs.
-func (e *enc) trimmed(a []byte) {
+func (e *enc) trimmed(a []byte) { // fixedArray
 	n := len(a)
 	for ; n > 0 && a[n-1] == 0; n-- {
 	}
@@ -110,7 +110,7 @@ func (db *Database) Marshal() ([]byte, error) {
 	if len(db.recs) > maxCompiledRecords {
 		return nil, &LoadError{Msg: "too many records to serialise"}
 	}
-	e := &enc{b: make([]byte, 0, 64*len(db.recs)+1024)}
+	e := &enc{b: make([]byte, 0, 64*len(db.recs)+1024)} // encoder
 	e.b = append(e.b, formatMagic...)
 	e.u16(formatVersion)
 	e.str(ImplementsFile)
@@ -158,7 +158,7 @@ func boolByte(b bool) uint8 {
 }
 
 // record appends one rule line.
-func (e *enc) record(r *record, file int32) {
+func (e *enc) record(r *record, file int32) { // record
 	invariant.Check(file >= 0 && file <= 0xffff, "file index fits a u16")
 	invariant.Check(r.vallen <= maxString, "value length within MAXstring")
 	e.u16(r.flag)
@@ -255,7 +255,7 @@ func (d *dec) str() string {
 // than need is copied into the arena with zero padding instead.
 func (d *dec) field(max, need int) []byte {
 	invariant.Check(max > 0 && max <= maxString, "field bound is a struct magic array size")
-	n := int(d.u8())
+	n := int(d.u8()) // fieldLength
 	if n > max || !d.need(n) {
 		d.err = true
 		return nil
@@ -277,7 +277,7 @@ func Load(data []byte) (*Database, error) {
 // load reads a compiled database whose bytes it may keep: the records'
 // byte fields are slices of data.
 func load(data []byte) (*Database, error) {
-	d := &dec{b: data}
+	d := &dec{b: data} // decoder
 	if len(data) < len(formatMagic) || string(data[:len(formatMagic)]) != formatMagic {
 		return nil, &LoadError{Msg: "not a softmagic compiled database"}
 	}
@@ -291,7 +291,7 @@ func load(data []byte) (*Database, error) {
 		return nil, &LoadError{Msg: "compiled for file " + impl +
 			", this library implements " + ImplementsFile}
 	}
-	db := &Database{hash: d.str(), sourceDir: d.str(), names: map[string]entry{}, pool: newScanPool()}
+	db := &Database{hash: d.str(), sourceDir: d.str(), names: map[string]entry{}, pool: newScanPool()} // database
 	nfiles, ok := d.count(maxCompiledRecords)
 	if !ok || !d.need(nfiles) {
 		return nil, &LoadError{Msg: "file count out of range"}
@@ -317,7 +317,7 @@ func load(data []byte) (*Database, error) {
 }
 
 // loadMaps reads the map table.
-func (d *dec) loadMaps(db *Database) error {
+func (d *dec) loadMaps(db *Database) error { // database
 	nmaps, ok := d.count(maxCompiledRecords)
 	if !ok || !d.need(nmaps*16) {
 		return &LoadError{Msg: "map count out of range"}
@@ -336,7 +336,7 @@ func (d *dec) loadMaps(db *Database) error {
 }
 
 // loadSet reads one set's entry table of one map.
-func (d *dec) loadSet(m *dbMap, s int) error {
+func (d *dec) loadSet(m *dbMap, s int) error { // setIndex
 	n, ok := d.count(maxCompiledRecords)
 	if !ok || !d.need(n*12) {
 		return &LoadError{Msg: "entry count out of range"}
@@ -350,15 +350,15 @@ func (d *dec) loadSet(m *dbMap, s int) error {
 }
 
 // loadRecords reads the rule lines and rebuilds the per-line metadata.
-func (d *dec) loadRecords(db *Database) error {
+func (d *dec) loadRecords(db *Database) error { // database
 	n, ok := d.count(maxCompiledRecords)
 	if !ok || !d.need(n*40) {
 		return &LoadError{Msg: "record count out of range"}
 	}
 	db.recs = make([]record, n)
 	db.meta = make([]lineMeta, n)
-	for i := range db.recs {
-		r := &db.recs[i]
+	for i := range db.recs { // recordIndex
+		r := &db.recs[i] // record
 		file := d.scalars(r)
 		if d.err || file >= len(db.files) || int(r.typ) >= numTypes || int(r.inType) >= numTypes ||
 			r.vallen > maxString || int(r.contLevel) >= maxLevels {
@@ -388,12 +388,12 @@ func (d *dec) loadRecords(db *Database) error {
 // in record order. Only its shape is checked: the literals are trusted
 // like the rules they belong to, and re-deriving them would link the
 // regex parser into every program that merely loads a database.
-func (d *dec) loadLiterals(db *Database) error {
+func (d *dec) loadLiterals(db *Database) error { // database
 	n, ok := d.count(len(db.regexes))
 	if !ok || n != len(db.regexes) || !d.need(n) {
 		return &LoadError{Msg: "regex literal table does not match the records"}
 	}
-	for i := range db.regexes {
+	for i := range db.regexes { // regexIndex
 		count := int(d.u8())
 		lits := make([]string, 0, count)
 		for k := 0; k < count && !d.err; k++ {
@@ -421,14 +421,14 @@ const recordScalarSize = 2 + 10 + 4 + 4 + 4 + 8 + 2
 
 // scalars reads a record's fixed part with one bounds check and returns
 // the file index.
-func (d *dec) scalars(r *record) int {
+func (d *dec) scalars(r *record) int { // record
 	invariant.Check(r != nil, "record to fill")
 	if !d.need(recordScalarSize) {
 		return 0
 	}
-	b := d.b[d.i : d.i+recordScalarSize]
+	b := d.b[d.i : d.i+recordScalarSize] // scalarBytes
 	d.i += recordScalarSize
-	le := binary.LittleEndian
+	le := binary.LittleEndian // littleEndian
 	r.flag = le.Uint16(b[0:2])
 	r.contLevel, r.factor, r.reln, r.vallen = b[2], b[3], b[4], b[5]
 	r.typ, r.inType = fileType(b[6]), fileType(b[7])
@@ -442,7 +442,7 @@ func (d *dec) scalars(r *record) int {
 
 // checkSets verifies the entry tables index the records consistently,
 // builds the name table and checks every "use" resolves.
-func checkSets(db *Database) error {
+func checkSets(db *Database) error { // database
 	expect := int32(0)
 	for i := range db.maps {
 		m := &db.maps[i]
@@ -472,10 +472,10 @@ func registerName(db *Database, e entry) {
 
 // checkMap verifies one map's entry tables from line index expect and
 // registers its names (the first map to define a name wins).
-func checkMap(db *Database, m *dbMap, expect int32) (int32, error) {
+func checkMap(db *Database, m *dbMap, expect int32) (int32, error) { // dbMap
 	invariant.Check(expect >= 0, "line index non-negative")
-	for s := 0; s < 2; s++ {
-		for _, e := range m.sets[s] {
+	for s := 0; s < 2; s++ { // setIndex
+		for _, e := range m.sets[s] { // entry
 			if e.first != expect || e.count <= 0 || int(e.first)+int(e.count) > len(db.recs) ||
 				db.recs[e.first].contLevel != 0 {
 				return 0, &LoadError{Msg: "entry table inconsistent with records"}
@@ -493,7 +493,7 @@ func checkMap(db *Database, m *dbMap, expect int32) (int32, error) {
 }
 
 // checkUseNames verifies every "use" line names a compiled "name" entry.
-func checkUseNames(db *Database) error {
+func checkUseNames(db *Database) error { // database
 	for i := range db.recs {
 		if db.recs[i].typ != tUse {
 			continue

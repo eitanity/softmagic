@@ -74,7 +74,7 @@ func TestRegexLiterals(t *testing.T) {
 // rejects a region the regex matches, for every regex in the embedded
 // database.
 func TestPrefilterSound(t *testing.T) {
-	db, err := Default()
+	db, err := Default() // database
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestPrefilterSound(t *testing.T) {
 		if len(slot.lits) == 0 {
 			continue
 		}
-		re := regexp.MustCompile(slot.pattern)
+		re := regexp.MustCompile(slot.pattern) // regex
 		for trial := 0; trial < 200; trial++ {
 			region = region[:0]
 			n := rng.intn(64)
@@ -138,7 +138,7 @@ func TestContainsFoldASCII(t *testing.T) {
 }
 
 // naiveSearch is the position-by-position loop searchFlagged replaced.
-func naiveSearch(m *record, region []byte, slen, rng int) int {
+func naiveSearch(m *record, region []byte, slen, rng int) int { // magicLine
 	tries := rng
 	if tries == 0 || tries > len(region) {
 		tries = len(region)
@@ -163,10 +163,10 @@ func TestSearchCandidates(t *testing.T) {
 		strCompactWhitespace, strCompactOptionalWhitespace, strIgnoreLowercase | strCompactWhitespace,
 		strIgnoreUppercase | strCompactOptionalWhitespace | strFullWord, strFullWord}
 	for trial := 0; trial < 20000; trial++ {
-		var m record
+		var m record // searchLine
 		m.value = make([]byte, valueMin)
 		m.typ = tSearch
-		n := 1 + rng.intn(4)
+		n := 1 + rng.intn(4) // literalLength
 		for k := 0; k < n; k++ {
 			m.value[k] = alphabet[rng.intn(len(alphabet))]
 		}
@@ -187,7 +187,7 @@ func TestSearchCandidates(t *testing.T) {
 // TestMemoRepeat checks that a call reuses its own regex and search
 // answers: the second output pass finds every region in the memo.
 func TestMemoRepeat(t *testing.T) {
-	db, err := Default()
+	db, err := Default() // database
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,8 +197,8 @@ func TestMemoRepeat(t *testing.T) {
 	if a.Description != b.Description || a.MIME != b.MIME || len(a.Rules) != len(b.Rules) {
 		t.Fatalf("results differ between calls: %+v %+v", a, b)
 	}
-	k := memoKey{rec: 3, start: 1, length: 2, window: windowBin, kind: memoSearch}
-	s := scan{gen: 5}
+	k := memoKey{rec: 3, start: 1, length: 2, window: windowBin, kind: memoSearch} // memoKey
+	s := scan{gen: 5}                                                              // scan
 	if _, _, hit := s.memoGet(k); hit {
 		t.Fatal("hit in an empty table")
 	}

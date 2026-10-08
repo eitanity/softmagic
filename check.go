@@ -15,11 +15,11 @@ import (
 )
 
 // magicCheck compares the converted value in s.value with the rule's.
-func (s *scan) magicCheck(m *record, f *frame) bool {
+func (s *scan) magicCheck(m *record, f *frame) bool { // rule
 	invariant.Check(f.idx >= 0 && f.idx < f.count, "checking a line within the frame")
 	invariant.Check(m.reln != 0, "line has a relation")
-	l := binary.LittleEndian.Uint64(m.value[0:8])
-	var v uint64
+	l := binary.LittleEndian.Uint64(m.value[0:8]) // lineValue
+	var v uint64                                  // fileValue
 	switch {
 	case m.typ == tByte:
 		v = uint64(s.value[0])
@@ -73,7 +73,7 @@ func memcmpBits(a, b []byte) uint64 {
 }
 
 // compareInt applies the relation to the file value v and rule value l.
-func compareInt(m *record, v, l uint64) bool {
+func compareInt(m *record, v, l uint64) bool { // rule
 	invariant.Check(m.reln != 0, "line has a relation")
 	switch m.reln {
 	case 'x':
@@ -103,7 +103,7 @@ func compareInt(m *record, v, l uint64) bool {
 
 // compareFloat is the float/double branch of magiccheck: unordered values
 // (NaN) match only '!' and 'x'.
-func compareFloat(reln uint8, l, v float64) bool {
+func compareFloat(reln uint8, l, v float64) bool { // lineValue
 	invariant.Check(reln != 0, "relation given")
 	unordered := math.IsNaN(l) || math.IsNaN(v)
 	switch reln {
@@ -142,7 +142,7 @@ func cToUpper(c byte) byte {
 // strncmp is file_strncmp: compare the rule string a against the file
 // bytes b for n bytes with the string modifier flags; 0 means equal, and
 // otherwise the (wrapped) difference of the first differing bytes.
-func strncmp(a, b []byte, n, maxlen int, flags uint32) uint64 {
+func strncmp(a, b []byte, n, maxlen int, flags uint32) uint64 { // compareLength
 	invariant.Check(n >= 0 && maxlen >= 0, "lengths non-negative")
 	if flags == 0 {
 		return strncmpPlain(a, b, n)
@@ -151,14 +151,14 @@ func strncmp(a, b []byte, n, maxlen int, flags uint32) uint64 {
 		return strncmpCase(a, b, n, flags)
 	}
 	ws := flags&(strCompactWhitespace|strCompactOptionalWhitespace) != 0
-	eb := n
+	eb := n // compareEnd
 	if ws {
 		eb = maxlen
 	}
 	if eb > len(b) {
 		eb = len(b)
 	}
-	c := strCursor{a: a, b: b, eb: eb, flags: flags}
+	c := strCursor{a: a, b: b, eb: eb, flags: flags} // cursor
 	for k := 0; k < n; k++ {
 		if c.bi >= eb {
 			return 1
@@ -185,7 +185,7 @@ type strCursor struct {
 // difference, 0 when equal so far.
 func (c *strCursor) step() uint64 {
 	invariant.Check(c.bi < c.eb, "file cursor within the compared range")
-	ca := at(c.a, c.ai)
+	ca := at(c.a, c.ai) // lineChar
 	switch {
 	case c.flags&strIgnoreLowercase != 0 && cIsLower(ca):
 		c.ai, c.bi = c.ai+1, c.bi+1
@@ -217,11 +217,11 @@ func (c *strCursor) step() uint64 {
 // each byte compares directly, folded under /c and /C, and /f requires a
 // word boundary after the string. It is the general loop specialised, and
 // returns what it would.
-func strncmpCase(a, b []byte, n int, flags uint32) uint64 {
+func strncmpCase(a, b []byte, n int, flags uint32) uint64 { // fileBytes
 	invariant.Check(flags&(strCompactWhitespace|strCompactOptionalWhitespace) == 0, "no whitespace compaction")
 	lower, upper := flags&strIgnoreLowercase != 0, flags&strIgnoreUppercase != 0
 	for k := 0; k < n; k++ {
-		ca, cb := at(a, k), at(b, k)
+		ca, cb := at(a, k), at(b, k) // lineChar
 		switch {
 		case lower && cIsLower(ca):
 			cb = cToLower(cb)
@@ -262,7 +262,7 @@ func skipSpaces(b []byte, i, end int) int {
 
 // searchCheck scans the search region for the rule string within the
 // rule's range; 0 means found.
-func (s *scan) searchCheck(m *record, rec int32) uint64 {
+func (s *scan) searchCheck(m *record, rec int32) uint64 { // searchRule
 	invariant.Check(m.typ == tSearch, "search line")
 	invariant.Check(!s.search.valid || s.search.start+s.search.length <= len(s.buf), "search region within the buffer")
 	if !s.search.valid {
@@ -297,7 +297,7 @@ func (s *scan) searchCheck(m *record, rec int32) uint64 {
 }
 
 // searchRun finds the value in the region: the offset or -1.
-func searchRun(m *record, region []byte, slen, rng, limit int) int {
+func searchRun(m *record, region []byte, slen, rng, limit int) int { // searchRule
 	invariant.Check(limit <= len(region), "limit within the region")
 	invariant.Check(slen >= 0 && slen <= maxString, "search string within MAXstring")
 	if slen > 0 && m.strFlags() == 0 {
@@ -308,7 +308,7 @@ func searchRun(m *record, region []byte, slen, rng, limit int) int {
 
 // searchFlagged is the position-by-position search for a string with
 // modifier flags; -1 when not found within the range.
-func searchFlagged(m *record, region []byte, slen, rng int) int {
+func searchFlagged(m *record, region []byte, slen, rng int) int { // searchRule
 	invariant.Check(slen >= 0 && slen <= maxString, "search string within MAXstring")
 	invariant.Check(rng >= 0, "range non-negative")
 	tries := rng
@@ -341,8 +341,8 @@ func searchByCandidate(m *record, region []byte, slen, tries int) int {
 	invariant.Check(tries >= 0 && tries <= len(region), "tries within the region")
 	flags := m.strFlags()
 	value := m.valueBytes()
-	c1 := value[0]
-	c2 := c1
+	c1 := value[0] // firstChar
+	c2 := c1       // otherCaseChar
 	switch {
 	case flags&strIgnoreLowercase != 0 && cIsLower(c1):
 		c2 = cToUpper(c1)
@@ -369,7 +369,7 @@ func searchByCandidate(m *record, region []byte, slen, tries int) int {
 
 // firstByteMatches is strncmp's comparison of the first byte under /c
 // and /C.
-func firstByteMatches(ca, cb byte, flags uint32) bool {
+func firstByteMatches(ca, cb byte, flags uint32) bool { // fileChar
 	switch {
 	case flags&strIgnoreLowercase != 0 && cIsLower(ca):
 		return cToLower(cb) == ca
@@ -391,7 +391,7 @@ func (s *scan) regexCheck(f *frame) uint64 {
 	}
 	rec := f.first + f.idx
 	key := s.regionKey(memoRegex, rec)
-	so, eo, hit := s.memoGet(key)
+	so, eo, hit := s.memoGet(key) // startOffset
 	if !hit {
 		var ok bool
 		if so, eo, ok = s.regexRun(rec); !ok {
@@ -414,7 +414,7 @@ func (s *scan) regexCheck(f *frame) uint64 {
 func (s *scan) regexRun(rec int32) (int32, int32, bool) {
 	invariant.Check(s.search.valid, "region set")
 	slot := s.db.regexSlot(rec)
-	re := s.db.regex(rec)
+	re := s.db.regex(rec) // regex
 	if slot == nil || re == nil {
 		return -1, -1, false
 	}
@@ -429,7 +429,7 @@ func (s *scan) regexRun(rec int32) (int32, int32, bool) {
 		return -1, -1, true
 	}
 	buf := s.rxScratch(2 * len(region))
-	n := transcodeLatin1(buf, region)
+	n := transcodeLatin1(buf, region) // transcodedLength
 	loc := re.FindIndex(buf[:n])
 	if loc == nil {
 		return -1, -1, true
@@ -450,9 +450,9 @@ func (s *scan) boolFail(what string) uint64 {
 // rune with the same value into dst and returns the length written.
 func transcodeLatin1(dst, src []byte) int {
 	invariant.Check(len(dst) >= 2*len(src) || len(src) > regexMax, "transcoding fits")
-	n := 0
+	n := 0 // writtenCount
 	for i := 0; i < len(src) && n+1 < len(dst); i++ {
-		c := src[i]
+		c := src[i] // sourceByte
 		if c < 0x80 {
 			dst[n] = c
 			n++
@@ -470,7 +470,7 @@ func transcodeLatin1(dst, src []byte) int {
 // one source byte together with its continuation.
 func originalOffset(transcoded []byte, idx int) int {
 	invariant.Check(idx >= 0, "index non-negative")
-	o := 0
+	o := 0 // sourceOffset
 	for i := 0; i < idx && i < len(transcoded); i++ {
 		if transcoded[i]&0xc0 != 0x80 {
 			o++

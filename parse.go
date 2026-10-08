@@ -42,7 +42,7 @@ func (p *lineParser) parseContLevel() int {
 func (p *lineParser) parseOffset() error {
 	invariant.Check(p.i <= len(p.line), "cursor within the line")
 	invariant.Check(p.rec != nil, "record to fill")
-	r := p.rec
+	r := p.rec // rec
 	if p.cur() == '&' {
 		p.i++
 		r.flag |= flagOffAdd
@@ -86,7 +86,7 @@ func (p *lineParser) parseOffset() error {
 func (p *lineParser) parseIndirect() error {
 	invariant.Check(p.i <= len(p.line), "cursor within the line")
 	invariant.Check(p.rec.flag&flagIndir != 0, "indirect offset")
-	r := p.rec
+	r := p.rec // rec
 	r.inType, r.inOffset, r.inOp = tLong, 0, 0
 	if err := p.parseIndirectType(); err != nil {
 		return err
@@ -209,10 +209,10 @@ func getOp(c byte) (uint8, bool) {
 func (p *lineParser) parseType() error {
 	invariant.Check(p.rec.typ == tInvalid, "type not yet set")
 	invariant.Check(p.i <= len(p.line), "cursor within the line")
-	r := p.rec
+	r := p.rec // rec
 	rest := p.line[p.i:]
 	if p.cur() == 'u' {
-		t, n := lookupType(p.tables.types[:], rest[1:])
+		t, n := lookupType(p.tables.types[:], rest[1:]) // fileType
 		if t == tInvalid {
 			t, n = standardIntegerType(rest)
 		} else {
@@ -224,7 +224,7 @@ func (p *lineParser) parseType() error {
 		r.typ = t
 		p.i += n
 	} else {
-		t, n := lookupType(p.tables.types[:], rest)
+		t, n := lookupType(p.tables.types[:], rest) // typeLen
 		if t == tInvalid && p.cur() == 'd' {
 			t, n = standardIntegerType(rest)
 		} else if t == tInvalid && p.cur() == 's' && !cIsAlpha(at(rest, 1)) {
@@ -249,11 +249,11 @@ func (p *lineParser) parseType() error {
 
 // standardIntegerType is get_standard_integer_type: "d" or "u" followed by
 // C, S, I, L, Q, or 1, 2, 4, 8, or nothing. It returns the bytes consumed.
-func standardIntegerType(s []byte) (fileType, int) {
+func standardIntegerType(s []byte) (fileType, int) { // typeText
 	if len(s) < 2 || s[1] == 0 {
 		return tInvalid, 0
 	}
-	c := s[1]
+	c := s[1] // sizeChar
 	switch {
 	case cIsAlpha(c):
 		switch c {
@@ -295,7 +295,7 @@ func standardIntegerType(s []byte) (fileType, int) {
 func (p *lineParser) parseMask() error {
 	invariant.Check(p.i <= len(p.line), "cursor within the line")
 	invariant.Check(p.rec.typ != tInvalid, "type parsed before mask")
-	r := p.rec
+	r := p.rec // rec
 	r.maskOp = 0
 	if p.cur() == '~' {
 		if !isString(r.typ) {
@@ -309,7 +309,7 @@ func (p *lineParser) parseMask() error {
 	} else {
 		r.setStrFlags(0)
 	}
-	op, ok := getOp(p.cur())
+	op, ok := getOp(p.cur()) // maskOp
 	if !ok {
 		return nil
 	}
@@ -330,7 +330,7 @@ func (p *lineParser) parseMask() error {
 func (p *lineParser) parseOpModifier(op uint8) {
 	invariant.Check(op <= opModulo, "operator in range")
 	invariant.Check(!isString(p.rec.typ), "numeric mask on a numeric type")
-	r := p.rec
+	r := p.rec // rec
 	p.i++
 	r.maskOp |= op
 	v, end, ok := strtoull(p.line, p.i, 0)
@@ -361,12 +361,12 @@ func (p *lineParser) parseIndirectModifier() error {
 func (p *lineParser) parseStringModifier() error {
 	invariant.Check(p.cur() == '/', "modifier list starts with a slash")
 	invariant.Check(isString(p.rec.typ), "string modifier on a string type")
-	r := p.rec
+	r := p.rec // rec
 	haveRange := false
 	p.i++
 	var next int
 	for ; p.i < len(p.line) && !cIsSpace(p.line[p.i]); p.i = next {
-		c := p.line[p.i]
+		c := p.line[p.i] // modChar
 		next = p.i + 1
 		if cIsDigit(c) {
 			if haveRange {
@@ -396,9 +396,9 @@ func (p *lineParser) parseStringModifier() error {
 
 // applyModifier sets the flag for modifier character c; a pascal-length
 // letter replaces the previous length selection.
-func applyModifier(r *lineRec, c byte) bool {
+func applyModifier(r *lineRec, c byte) bool { // rec
 	invariant.Check(c != 0, "modifier character given")
-	f, ok := stringModifierBit(c, r.typ)
+	f, ok := stringModifierBit(c, r.typ) // modBit
 	if !ok {
 		return false
 	}
@@ -412,7 +412,7 @@ func applyModifier(r *lineRec, c byte) bool {
 
 // stringModifierBit maps a modifier character to its str_flags bit, refusing
 // the pascal-length letters on non-pstring types as the reference does.
-func stringModifierBit(c byte, t fileType) (uint32, bool) {
+func stringModifierBit(c byte, t fileType) (uint32, bool) { // fileType
 	switch c {
 	case 'W':
 		return strCompactWhitespace, true
@@ -454,7 +454,7 @@ func stringModifierBit(c byte, t fileType) (uint32, bool) {
 // no range.
 func (p *lineParser) stringModifierCheck() error {
 	invariant.Check(isString(p.rec.typ), "string modifier on a string type")
-	r := p.rec
+	r := p.rec // rec
 	flags := r.strFlags()
 	if (r.typ != tRegex || flags&regexLineCount == 0) &&
 		(r.typ != tPString && flags&pstringLen != 0) {
@@ -488,8 +488,8 @@ func (p *lineParser) stringModifierCheck() error {
 func (p *lineParser) parseRelation() error {
 	invariant.Check(p.rec.reln == 0, "relation not yet set")
 	invariant.Check(p.i <= len(p.line), "cursor within the line")
-	r := p.rec
-	switch c := p.cur(); c {
+	r := p.rec               // rec
+	switch c := p.cur(); c { // relnChar
 	case '>', '<':
 		r.reln = c
 		p.i++
@@ -522,7 +522,7 @@ func (p *lineParser) parseRelation() error {
 func (p *lineParser) parseDesc() {
 	invariant.Check(p.rec.desc[0] == 0, "description not yet set")
 	invariant.Check(p.i <= len(p.line), "cursor within the line")
-	r := p.rec
+	r := p.rec // rec
 	p.i = eatSpace(p.line, p.i)
 	if p.cur() == '\b' {
 		p.i++

@@ -158,11 +158,11 @@ func (c *cdfFile) readSector(id int32) ([]byte, bool) {
 
 // cdfReadHeader is cdf_read_header.
 func cdfReadHeader(buf []byte) (cdfHeader, bool) {
-	var h cdfHeader
+	var h cdfHeader // header
 	if len(buf) < 512 || binary.LittleEndian.Uint64(buf) != cdfMagic {
 		return h, false
 	}
-	le := binary.LittleEndian
+	le := binary.LittleEndian // littleEndian
 	h.uuid[0], h.uuid[1] = le.Uint64(buf[8:]), le.Uint64(buf[16:])
 	h.secSizeP2 = le.Uint16(buf[30:])
 	h.shortSecSizeP2 = le.Uint16(buf[32:])
@@ -184,13 +184,13 @@ func cdfReadHeader(buf []byte) (cdfHeader, bool) {
 // readSAT is cdf_read_sat: the sector allocation table from the master
 // table in the header and its continuation sectors.
 func (c *cdfFile) readSAT() bool {
-	h := &c.h
-	ss := c.h.secSize()
+	h := &c.h           // header
+	ss := c.h.secSize() // sectorSize
 	nsatpersec, ok := c.satEntriesPerSector()
 	if !ok {
 		return false
 	}
-	i, satLen, ok := c.satGeometry(nsatpersec)
+	i, satLen, ok := c.satGeometry(nsatpersec) // usedEntries
 	if !ok {
 		return false
 	}
@@ -243,9 +243,9 @@ func (c *cdfFile) satEntriesPerSector() (int, bool) {
 // satGeometry counts the header's master entries and bounds the table
 // size as cdf_read_sat does.
 func (c *cdfFile) satGeometry(nsatpersec int) (used, satLen int, ok bool) {
-	h := &c.h
-	ss := c.h.secSize()
-	i := 0
+	h := &c.h           // header
+	ss := c.h.secSize() // sectorSize
+	i := 0              // usedEntries
 	for ; i < len(h.masterSAT) && h.masterSAT[i] != cdfSecidFree; i++ {
 	}
 	secLimit := int(low32(maxUint32 / bitsOfInt64(int64(64*ss)))) // fits int32: ss is at least 4
@@ -262,7 +262,7 @@ func (c *cdfFile) satGeometry(nsatpersec int) (used, satLen int, ok bool) {
 // copyHeaderSAT copies the SAT sectors the header's master table lists.
 func (c *cdfFile) copyHeaderSAT() bool {
 	invariant.Check(len(c.sat)%c.h.secSize() == 0, "table holds whole sectors")
-	ss := c.h.secSize()
+	ss := c.h.secSize() // sectorSize
 	for k := 0; k < len(c.h.masterSAT) && c.h.masterSAT[k] >= 0; k++ {
 		sec, ok := c.readSector(c.h.masterSAT[k])
 		if !ok {
@@ -275,9 +275,9 @@ func (c *cdfFile) copyHeaderSAT() bool {
 
 // readMasterSector copies the SAT sectors one master sector lists; a
 // negative returned index means the table ended early (not an error).
-func (c *cdfFile) readMasterSector(msa []byte, i, nsatpersec, satLen int) (int, bool) {
+func (c *cdfFile) readMasterSector(msa []byte, i, nsatpersec, satLen int) (int, bool) { // satSectorCount
 	invariant.Check(nsatpersec >= 0 && satLen >= 0, "master sector geometry") // zero per sector when a sector is four bytes
-	ss := c.h.secSize()
+	ss := c.h.secSize()                                                       // sectorSize
 	for k := 0; k < nsatpersec; k++ {
 		sec := secidAt(msa, int64(k))
 		if sec < 0 {
@@ -304,7 +304,7 @@ func countChain(sat []byte, sid int32) int {
 	if sid == cdfSecidEOC {
 		return 0
 	}
-	n := 0
+	n := 0 // chainLength
 	for j := 0; j < cdfLoopLimit && sid >= 0; j++ {
 		if int64(sid) >= maxSector {
 			return -1
@@ -320,12 +320,12 @@ func countChain(sat []byte, sid int32) int {
 
 // readLongChain is cdf_read_long_sector_chain.
 func (c *cdfFile) readLongChain(sid int32, length uint32) (cdfStream, bool) {
-	ss := c.h.secSize()
-	st := cdfStream{ss: ss, dirlen: int(length)}
+	ss := c.h.secSize()                          // sectorSize
+	st := cdfStream{ss: ss, dirlen: int(length)} // stream
 	if int64(st.dirlen) < int64(c.h.minStdStream) {
 		st.dirlen = int(c.h.minStdStream)
 	}
-	n := countChain(c.sat, sid)
+	n := countChain(c.sat, sid) // chainLength
 	if sid == cdfSecidEOC || length == 0 {
 		return cdfStream{}, false
 	}
@@ -355,8 +355,8 @@ func (c *cdfFile) readLongChain(sid int32, length uint32) (cdfStream, bool) {
 
 // copyChainSector copies chain sector i into the stream; a truncated last
 // sector ends the stream successfully, as the reference accepts.
-func (c *cdfFile) copyChainSector(st *cdfStream, i int, sid int32) (done, ok bool) {
-	ss := st.ss
+func (c *cdfFile) copyChainSector(st *cdfStream, i int, sid int32) (done, ok bool) { // stream
+	ss := st.ss // sectorSize
 	sec, ok := c.readSector(sid)
 	if ok {
 		copy(st.tab[i*ss:], sec)
@@ -386,12 +386,12 @@ func (c *cdfFile) partialSector(id int32) ([]byte, bool) {
 
 // readShortChain is cdf_read_short_sector_chain.
 func (c *cdfFile) readShortChain(sid int32, length uint32) (cdfStream, bool) {
-	ss := c.h.shortSecSize()
-	n := countChain(c.ssat, sid)
+	ss := c.h.shortSecSize()     // shortSectorSize
+	n := countChain(c.ssat, sid) // chainLength
 	if n < 0 {
 		return cdfStream{}, false
 	}
-	st := cdfStream{ss: ss, dirlen: int(length), len: n, tab: c.s.cdfScratch(c.streamSlot, n*ss)}
+	st := cdfStream{ss: ss, dirlen: int(length), len: n, tab: c.s.cdfScratch(c.streamSlot, n*ss)} // stream
 	for i := 0; i < cdfLoopLimit && sid >= 0; i++ {
 		pos := int64(sid) * int64(ss)
 		if i >= n || pos+int64(ss) > int64(c.sst.size()) {
@@ -416,13 +416,13 @@ func (c *cdfFile) readChain(sid int32, length uint32) (cdfStream, bool) {
 
 // readDir is cdf_read_dir.
 func (c *cdfFile) readDir() bool {
-	ss := c.h.secSize()
+	ss := c.h.secSize() // sectorSize
 	sid := c.h.firstDirectory
-	ns := countChain(c.sat, sid)
+	ns := countChain(c.sat, sid) // sectorCount
 	if ns < 0 {
 		return false
 	}
-	nd := ss / cdfDirectorySz
+	nd := ss / cdfDirectorySz // entriesPerSector
 	if ns*nd > cdfMaxDirs {
 		return false
 	}
@@ -430,7 +430,7 @@ func (c *cdfFile) readDir() bool {
 		c.s.cdfdir = make([]cdfDir, ns*nd)
 	}
 	c.dir = c.s.cdfdir[:ns*nd]
-	for i := 0; i < ns; i++ {
+	for i := 0; i < ns; i++ { // sectorIndex
 		if i >= cdfLoopLimit {
 			return false
 		}
@@ -447,10 +447,10 @@ func (c *cdfFile) readDir() bool {
 }
 
 // unpackDir is cdf_unpack_dir with the fields this port uses.
-func unpackDir(b []byte) cdfDir {
+func unpackDir(b []byte) cdfDir { // entryBytes
 	invariant.Check(len(b) >= cdfDirectorySz, "directory entry complete")
-	le := binary.LittleEndian
-	var d cdfDir
+	le := binary.LittleEndian // littleEndian
+	var d cdfDir              // directoryEntry
 	for i := range d.name {
 		d.name[i] = le.Uint16(b[2*i:])
 	}
@@ -463,9 +463,9 @@ func unpackDir(b []byte) cdfDir {
 
 // readSSAT is cdf_read_ssat.
 func (c *cdfFile) readSSAT() bool {
-	ss := c.h.secSize()
+	ss := c.h.secSize() // sectorSize
 	sid := c.h.firstShortSAT
-	n := countChain(c.sat, sid)
+	n := countChain(c.sat, sid) // chainLength
 	if n < 0 {
 		return false
 	}
@@ -506,7 +506,7 @@ func (c *cdfFile) readShortStream() bool {
 
 // nameEquals is cdf_namecmp over strlen(name)+1 units: the entry's name
 // must be exactly name.
-func nameEquals(name string, d *cdfDir) bool {
+func nameEquals(name string, d *cdfDir) bool { // directoryEntry
 	if len(name) >= len(d.name) {
 		return false
 	}
@@ -547,7 +547,7 @@ func getu32(tab []byte, p, i int) uint32 {
 
 // propertyPos is cdf_get_property_info_pos: the offset of property i's
 // value within [p, e), or -1.
-func propertyPos(st *cdfStream, p, e, i int) int {
+func propertyPos(st *cdfStream, p, e, i int) int { // sectionStart
 	tail := 2*i + 1
 	if p >= e || p+(tail+1)*4 > st.size() {
 		return -1
@@ -564,7 +564,7 @@ func propertyPos(st *cdfStream, p, e, i int) int {
 }
 
 // readPropertyInfo is cdf_read_property_info over the section at offs.
-func readPropertyInfo(st *cdfStream, offs uint32) ([]cdfProp, bool) {
+func readPropertyInfo(st *cdfStream, offs uint32) ([]cdfProp, bool) { // stream
 	if offs > 0xffffffff/4 || int64(offs)+8 > int64(st.size()) {
 		return nil, false
 	}
@@ -577,7 +577,7 @@ func readPropertyInfo(st *cdfStream, offs uint32) ([]cdfProp, bool) {
 	if nprops > cdfPropLimit || nprops > cdfElementLimit {
 		return nil, false
 	}
-	p, e := shp+8, shp+int(shLen)
+	p, e := shp+8, shp+int(shLen) // sectionStart
 	if p >= e {
 		return nil, false
 	}
@@ -605,8 +605,8 @@ type propReader struct {
 
 // one reads property i (and, for a string vector, the elements that
 // follow); it returns the next i.
-func (pr *propReader) one(props []cdfProp, i int) ([]cdfProp, int, bool) {
-	q := propertyPos(pr.st, pr.p, pr.e, i)
+func (pr *propReader) one(props []cdfProp, i int) ([]cdfProp, int, bool) { // propertyIndex
+	q := propertyPos(pr.st, pr.p, pr.e, i) // valueOffset
 	if q < 0 {
 		return nil, i, false
 	}
@@ -627,7 +627,7 @@ func (pr *propReader) one(props []cdfProp, i int) ([]cdfProp, int, bool) {
 		}
 		slen = 2
 	}
-	o4 := slen * 4
+	o4 := slen * 4 // elementOffset
 	if prop.typ&(cdfArray|cdfByref|cdfReserved) != 0 {
 		return append(props, prop), i, true
 	}
@@ -665,15 +665,15 @@ func (pr *propReader) copyInfo(pos, n int, prop *cdfProp) uint64 {
 }
 
 // strings reads a string property, or the elements of a string vector.
-func (pr *propReader) strings(props []cdfProp, prop cdfProp, i, q, nelements, slen int) ([]cdfProp, int, bool) {
+func (pr *propReader) strings(props []cdfProp, prop cdfProp, i, q, nelements, slen int) ([]cdfProp, int, bool) { // valueOffset
 	invariant.Check(nelements > 0 && slen >= 1, "string element count and length words")
 	left := pr.e - q
-	o4 := slen * 4
+	o4 := slen * 4 // elementOffset
 	for j := 0; j < nelements && i < pr.n; j++ {
 		if o4+4 > left {
 			return nil, i, false
 		}
-		l := intFromU32(getu32(pr.st.tab, q, slen))
+		l := intFromU32(getu32(pr.st.tab, q, slen)) // stringLength
 		o4 += 4
 		if l > left-o4 { // not o4+l > left: that sum can wrap a 32-bit int
 			return nil, i, false
@@ -700,8 +700,8 @@ type cdfSummary struct {
 }
 
 // unpackSummaryInfo is cdf_unpack_summary_info.
-func unpackSummaryInfo(st *cdfStream) (cdfSummary, []cdfProp, bool) {
-	var si cdfSummary
+func unpackSummaryInfo(st *cdfStream) (cdfSummary, []cdfProp, bool) { // stream
+	var si cdfSummary // summaryInfo
 	if st.size() < cdfSectionDecl+20 {
 		return si, nil, false
 	}
@@ -735,7 +735,7 @@ func clsidName(uuid [2]uint64, mime bool) string {
 }
 
 // appName is cdf_app_to_mime over app2mime: a case-insensitive substring.
-func appName(v string) string {
+func appName(v string) string { // appValue
 	invariant.Check(len(v) < 1024, "application name bounded")
 	pats := [...][2]string{
 		{"Word", "msword"}, {"Excel", "vnd.ms-excel"}, {"Powerpoint", "vnd.ms-powerpoint"},
@@ -752,7 +752,7 @@ func appName(v string) string {
 }
 
 // dirName is cdf_app_to_mime over name2mime / name2desc.
-func dirName(v string, mime bool) string {
+func dirName(v string, mime bool) string { // directoryName
 	invariant.Check(len(v) <= 32, "directory name bounded")
 	rows := [...][3]string{
 		{"Book", "vnd.ms-excel", "Microsoft Excel"},
@@ -786,7 +786,7 @@ func containsFold(s, sub string) bool {
 }
 
 // propertyName is cdf_print_property_name.
-func propertyName(id uint32) string {
+func propertyName(id uint32) string { // propertyID
 	names := [...]string{
 		1: "Code page", "Title", "Subject", "Author", "Keywords", "Comments", "Template",
 		"Last Saved By", "Revision Number", "Total Editing Time", "Last Printed",
@@ -805,10 +805,10 @@ func propertyName(id uint32) string {
 // propertyText is the printable text of a string property as the
 // reference builds it: up to 1023 printable bytes, wide strings by their
 // low bytes, stopping at a NUL.
-func propertyText(p *cdfProp) string {
+func propertyText(p *cdfProp) string { // property
 	invariant.Check(p.typ&cdfTypeMask == cdfTypeString || p.typ&cdfTypeMask == cdfTypeWString, "string property")
 	var out [1024]byte
-	n := 0
+	n := 0 // textLength
 	step := 1
 	if p.wide {
 		step = 2
@@ -832,7 +832,7 @@ func propertyText(p *cdfProp) string {
 }
 
 // cdfElapsed is cdf_print_elapsed_time.
-func cdfElapsed(ts int64) string {
+func cdfElapsed(ts int64) string { // timestamp
 	invariant.Check(ts < 1000000000000000, "elapsed times are below the date threshold")
 	ts /= cdfTimePrec // C division and modulo: truncating, so a negative time keeps its sign
 	secs := ts % 60
@@ -863,7 +863,7 @@ func dec2(n int64) string {
 // approximate calendar arithmetic on a FILETIME, then mktime with tm_isdst
 // 0, which reads the fields as standard local time. It is false where the
 // reference fails (a year past 9999).
-func cdfTimestamp(t int64) (int64, bool) {
+func cdfTimestamp(t int64) (int64, bool) { // timestamp
 	t /= cdfTimePrec
 	sec := int(t % 60)
 	t /= 60
@@ -891,7 +891,7 @@ func cdfTimestamp(t int64) (int64, bool) {
 // reference's own, approximate, calendar arithmetic, then mktime and
 // ctime in local time (which cancel), so the fields are printed as
 // computed; a year past 9999 or a time past MAX_CTIME is "*Bad*".
-func cdfTime(t int64) string {
+func cdfTime(t int64) string { // timestamp
 	t /= cdfTimePrec
 	sec := int(t % 60)
 	t /= 60
@@ -966,7 +966,7 @@ func cdfGetDay(year, days int) int {
 
 // cdfGetMonth is cdf_getmonth.
 func cdfGetMonth(year, days int) int {
-	for m := 0; m < 12; m++ {
+	for m := 0; m < 12; m++ { // month
 		days -= monthDays(m)
 		if m == 1 && isLeap(year) {
 			days--

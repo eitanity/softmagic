@@ -23,8 +23,8 @@ import (
 // reference prints a warning for a refused line and goes on, where this
 // returns the CompileError.
 func DumpSources(srcs []Source, o CompileOptions) (string, error) {
-	var b strings.Builder
-	c := compiler{sourceDir: o.SourceDir, tables: newTypeTables(), base: o.Base, dump: &b}
+	var b strings.Builder                                                                  // builder
+	c := compiler{sourceDir: o.SourceDir, tables: newTypeTables(), base: o.Base, dump: &b} // compiler
 	if c.sourceDir == "" {
 		c.sourceDir = "magic/Magdir"
 	}
@@ -44,9 +44,9 @@ func DumpSources(srcs []Source, o CompileOptions) (string, error) {
 const dumpOps = "&|^+-*/%"
 
 // mdump is file_mdump for the line just parsed.
-func (p *lineParser) mdump(b *strings.Builder) {
+func (p *lineParser) mdump(b *strings.Builder) { // builder
 	invariant.Check(b != nil && p.rec != nil, "a dump of a parsed line")
-	r := p.rec
+	r := p.rec // lineRec
 	invariant.Check(r.desc[maxDesc-1] == 0, "description terminated")
 	if r.desc[0] == 0 {
 		b.WriteString(cString(r.desc[1:])) // the file name tucked in after the NUL
@@ -93,7 +93,7 @@ func (p *lineParser) typeName(t fileType) string {
 
 // dumpModifiers is the string flags and range, or the mask operator and
 // mask, after the type.
-func dumpModifiers(b *strings.Builder, r *recordHead) {
+func dumpModifiers(b *strings.Builder, r *recordHead) { // builder
 	invariant.Check(b != nil, "dump buffer")
 	if !isString(r.typ) {
 		b.WriteByte(dumpOps[r.maskOp&opsMask])
@@ -103,9 +103,9 @@ func dumpModifiers(b *strings.Builder, r *recordHead) {
 		}
 		return
 	}
-	if fl := r.strFlags(); fl != 0 {
+	if fl := r.strFlags(); fl != 0 { // strFlags
 		b.WriteByte('/')
-		for _, f := range []struct {
+		for _, f := range []struct { // strFlag
 			bit uint32
 			c   byte
 		}{
@@ -125,9 +125,9 @@ func dumpModifiers(b *strings.Builder, r *recordHead) {
 }
 
 // dumpValue is the value as file_mdump prints it for the line's type.
-func dumpValue(b *strings.Builder, r *lineRec) {
+func dumpValue(b *strings.Builder, r *lineRec) { // builder
 	invariant.Check(b != nil && r != nil, "dump of a value")
-	v := r.value[:]
+	v := r.value[:] // value
 	switch r.typ {
 	case tByte, tShort, tLong, tLeShort, tLeLong, tMeLong, tBeShort, tBeLong, tIndirect:
 		b.WriteString(strconv.FormatInt(int64(wrapInt32(int64(binary.LittleEndian.Uint32(v)))), 10)) // %d of int32
@@ -165,10 +165,10 @@ func dumpValue(b *strings.Builder, r *lineRec) {
 
 // showStr is file_showstr: printable ASCII as itself, the C escapes by
 // letter, anything else as three octal digits.
-func showStr(b *strings.Builder, s []byte) {
+func showStr(b *strings.Builder, s []byte) { // builder
 	invariant.Check(len(s) <= maxString, "string value within MAXstring")
 	const letters = "\a\b\f\n\r\t\v"
-	for _, c := range s {
+	for _, c := range s { // char
 		switch i := strings.IndexByte(letters, c); {
 		case c >= 040 && c <= 0176:
 			b.WriteByte(c)
@@ -184,13 +184,13 @@ func showStr(b *strings.Builder, s []byte) {
 // varint is file_varint2uintmax_t over a value's bytes, which end at a NUL.
 // The little-endian form shifts once more after its last byte, as the
 // reference's loop does.
-func varint(v []byte, le bool) uint64 {
+func varint(v []byte, le bool) uint64 { // littleEndian
 	invariant.Check(len(v) >= valueMin, "value holds its minimum")
-	n := indexByteFrom(v, 0, 0)
+	n := indexByteFrom(v, 0, 0) // valueLength
 	if n < 0 {
 		n = len(v)
 	}
-	var x uint64
+	var x uint64 // number
 	if !le {
 		for i := range n {
 			x |= uint64(v[i] & 0x7f)

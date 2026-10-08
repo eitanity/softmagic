@@ -213,7 +213,7 @@ func typeSize(t fileType) int {
 }
 
 // formatClass is file_formats[t].
-func formatClass(t fileType) fmtClass {
+func formatClass(t fileType) fmtClass { // fileType
 	switch {
 	case t == tDefault || t == tName || t == tUse || t == tClear || t == tInvalid:
 		return fmtNone

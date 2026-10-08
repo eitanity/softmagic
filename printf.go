@@ -27,8 +27,8 @@ type convSpec struct {
 func parseConv(desc string, i int) convSpec {
 	invariant.Check(i >= 0, "index non-negative")
 	invariant.Check(i < len(desc) && desc[i] == '%', "conversion starts at a percent")
-	c := convSpec{prec: -1}
-	j := i + 1
+	c := convSpec{prec: -1} // spec
+	j := i + 1              // cursor
 	for ; j < len(desc) && isFlagChar(desc[j]); j++ {
 		switch desc[j] {
 		case '-':
@@ -77,10 +77,10 @@ func isLengthChar(c byte) bool {
 // printfNum prints desc with its conversion applied to an integer of the
 // given promoted width: v holds the sign-extended value; signed says the C
 // argument type is signed, which decides how %d and %u reinterpret it.
-func (s *scan) printfNum(desc string, v uint64, signed bool, bits int) {
+func (s *scan) printfNum(desc string, v uint64, signed bool, bits int) { // value
 	invariant.Check(s.outLen <= maxOutput, "output length within cap")
 	invariant.Check(bits == 32 || bits == 64, "promoted width")
-	i := indexFrom(desc, 0, '%')
+	i := indexFrom(desc, 0, '%') // percentIndex
 	if i >= len(desc) {
 		s.writeString(desc)
 		return
@@ -92,7 +92,7 @@ func (s *scan) printfNum(desc string, v uint64, signed bool, bits int) {
 }
 
 // formatInt renders an integer image of `bits` width for the conversion.
-func formatInt(c convSpec, v uint64, bits int, _ bool) string {
+func formatInt(c convSpec, v uint64, bits int, _ bool) string { // spec
 	invariant.Check(c.verb != 0, "conversion has a verb")
 	invariant.Check(bits == 32 || bits == 64, "promoted width")
 	var digits string
@@ -124,7 +124,7 @@ func formatInt(c convSpec, v uint64, bits int, _ bool) string {
 
 // finishNumber applies precision, sign, alternate prefix and width to the
 // digit string as C's printf does.
-func finishNumber(c convSpec, digits string, neg bool, v uint64) string {
+func finishNumber(c convSpec, digits string, neg bool, v uint64) string { // value
 	invariant.Check(c.verb != 's', "number conversion")
 	if c.hasPrec {
 		if c.prec == 0 && v == 0 {
@@ -144,7 +144,7 @@ func finishNumber(c convSpec, digits string, neg bool, v uint64) string {
 }
 
 // numberPrefix is the sign or alternate-form prefix of a number.
-func numberPrefix(c convSpec, digits string, neg bool, v uint64) (string, string) {
+func numberPrefix(c convSpec, digits string, neg bool, v uint64) (string, string) { // spec
 	prefix := ""
 	signed := c.verb == 'd' || c.verb == 'i'
 	switch {
@@ -172,7 +172,7 @@ func numberPrefix(c convSpec, digits string, neg bool, v uint64) (string, string
 }
 
 // padField pads to the width with spaces, on the right when '-' is set.
-func padField(c convSpec, s string, _ bool) string {
+func padField(c convSpec, s string, _ bool) string { // text
 	invariant.Check(c.width <= 1024, "width bounded by the compile-time format check")
 	invariant.Check(c.width >= 0, "width non-negative")
 	for n := len(s); n < c.width; n++ {
@@ -198,12 +198,12 @@ func upper(s string) string {
 // truncates, width pads).
 func (s *scan) printfStr(desc string, str []byte) {
 	invariant.Check(s.outLen <= maxOutput, "output length within cap")
-	i := indexFrom(desc, 0, '%')
+	i := indexFrom(desc, 0, '%') // percentIndex
 	if i >= len(desc) {
 		s.writeString(desc)
 		return
 	}
-	c := parseConv(desc, i)
+	c := parseConv(desc, i) // spec
 	if !invariant.Check(c.verb == 's', "string value printed with %s") {
 		s.truncate(TruncInvariant)
 	}
@@ -238,7 +238,7 @@ func (s *scan) spaces(n int) {
 // formatCFloat is a floating conversion as C's printf spells it. Go writes
 // "NaN", "+Inf" and "-Inf"; glibc writes "nan" or "-nan" by the NaN's sign
 // bit, and "inf" or "-inf".
-func formatCFloat(f float64, verb byte, prec int) string {
+func formatCFloat(f float64, verb byte, prec int) string { // value
 	switch {
 	case math.IsNaN(f) && math.Signbit(f):
 		return "-nan"
@@ -254,14 +254,14 @@ func formatCFloat(f float64, verb byte, prec int) string {
 }
 
 // printfFloat prints desc with its floating conversion applied.
-func (s *scan) printfFloat(desc string, f float64) {
+func (s *scan) printfFloat(desc string, f float64) { // value
 	invariant.Check(s.outLen <= maxOutput, "output length within cap")
-	i := indexFrom(desc, 0, '%')
+	i := indexFrom(desc, 0, '%') // percentIndex
 	if i >= len(desc) {
 		s.writeString(desc)
 		return
 	}
-	c := parseConv(desc, i)
+	c := parseConv(desc, i) // spec
 	prec := 6
 	if c.hasPrec {
 		prec = c.prec

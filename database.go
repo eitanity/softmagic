@@ -197,8 +197,8 @@ func (db *Database) Lines() int { return len(db.recs) }
 // the matching order.
 func (db *Database) List() string {
 	invariant.Check(len(db.recs) == len(db.meta), "meta parallel to records")
-	var b strings.Builder
-	for s := 0; s < 2; s++ {
+	var b strings.Builder    // builder
+	for s := 0; s < 2; s++ { // setIndex
 		b.WriteString("Set " + strconv.Itoa(s) + ":\nBinary patterns:\n")
 		for i := range db.maps {
 			db.listSet(&b, &db.maps[i], s, flagBinTest)
@@ -212,7 +212,7 @@ func (db *Database) List() string {
 }
 
 // listSet is apprentice_list for one set and one mode flag.
-func (db *Database) listSet(b *strings.Builder, m *dbMap, s int, mode uint16) {
+func (db *Database) listSet(b *strings.Builder, m *dbMap, s int, mode uint16) { // builder
 	invariant.Check(mode == flagBinTest || mode == flagTextTest, "mode is one class")
 	for _, e := range m.sets[s] {
 		lines := db.recs[e.first : e.first+e.count]
@@ -306,7 +306,7 @@ func (db *Database) Join(extra *Database, hash string) (*Database, error) {
 func shiftMaps(maps []dbMap, shift int32) []dbMap {
 	invariant.Check(shift >= 0, "shift non-negative")
 	out := make([]dbMap, len(maps))
-	for i := range maps {
+	for i := range maps { // mapIndex
 		out[i].first, out[i].count = maps[i].first+shift, maps[i].count
 		for s := 0; s < 2; s++ {
 			out[i].sets[s] = make([]entry, len(maps[i].sets[s]))

@@ -38,9 +38,9 @@ func isWild(c byte) bool { return c == '?' || c == '*' || c == '+' || c == '{' }
 // passes and the reference's message otherwise.
 func checkRegexSyntax(pat string) string {
 	invariant.Check(len(pat) < maxString, "pattern fits MAXstring")
-	var oc byte
-	for i := 0; i < len(pat); i++ {
-		c := pat[i]
+	var oc byte                     // prevChar
+	for i := 0; i < len(pat); i++ { // patIndex
+		c := pat[i] // patChar
 		if isWild(oc) && isWild(c) {
 			return "repetition-operator operand `" + string(oc) + string(c) + "' invalid"
 		}
@@ -65,7 +65,7 @@ func checkRegexSyntax(pat string) string {
 func boundsOK(pat string, i int) bool {
 	invariant.Check(i > 0, "after the brace")
 	invariant.Check(i <= len(pat), "cursor within the pattern")
-	s := []byte(pat)
+	s := []byte(pat) // patBytes
 	l, end, ok := strtoull(s, i, 10)
 	if ok && l > 1000 {
 		return false
@@ -91,7 +91,7 @@ func boundsOK(pat string, i int) bool {
 // Leftmost-longest semantics are selected at compile time with Longest().
 func translateRegex(pat string, flags uint32) string {
 	invariant.Check(len(pat) < maxString, "pattern fits MAXstring")
-	var b strings.Builder
+	var b strings.Builder // builder
 	// The reference compiles with REG_NEWLINE: ^ and $ match at line
 	// boundaries and '.' does not match a newline, which is RE2's (?m)
 	// without (?s).
@@ -101,8 +101,8 @@ func translateRegex(pat string, flags uint32) string {
 		b.WriteString("(?m)")
 	}
 	atStart := true
-	for i := 0; i < len(pat); i++ {
-		c := pat[i]
+	for i := 0; i < len(pat); i++ { // patIndex
+		c := pat[i] // patChar
 		switch {
 		case c == '\\' && i+1 < len(pat):
 			i++
@@ -133,7 +133,7 @@ const hexDigits = "0123456789abcdef"
 
 // writeEscape emits an escaped character, mapping GNU word boundaries to
 // RE2's and keeping other escapes verbatim.
-func writeEscape(b *strings.Builder, c byte) {
+func writeEscape(b *strings.Builder, c byte) { // builder
 	invariant.Check(b != nil, "builder present")
 	switch c {
 	case '<', '>':
@@ -147,10 +147,10 @@ func writeEscape(b *strings.Builder, c byte) {
 // writeBracket copies a bracket expression from pat[i] and returns the
 // index of its closing ']'. A ']' first in the set (after an optional '^')
 // is a member, as in POSIX, and a backslash is a member, not an escape.
-func writeBracket(b *strings.Builder, pat string, i int) int {
+func writeBracket(b *strings.Builder, pat string, i int) int { // builder
 	invariant.Check(i < len(pat) && pat[i] == '[', "bracket starts here")
 	b.WriteByte('[')
-	j := i + 1
+	j := i + 1 // bracketIndex
 	if at([]byte(pat), j) == '^' {
 		b.WriteByte('^')
 		j++
@@ -186,7 +186,7 @@ func writeBracket(b *strings.Builder, pat string, i int) int {
 // writeLiteral writes c as itself, or as \xNN when it is not ASCII: the
 // matcher runs RE2 over a byte-to-rune transcoding of the window, so byte
 // 0xNN is rune U+00NN.
-func writeLiteral(b *strings.Builder, c byte) {
+func writeLiteral(b *strings.Builder, c byte) { // literalChar
 	invariant.Check(b != nil, "builder present")
 	if c < 0x80 {
 		b.WriteByte(c)
@@ -201,8 +201,8 @@ func writeLiteral(b *strings.Builder, c byte) {
 // {n}, {n,} or {n,m}; otherwise the brace is a literal in POSIX.
 func intervalFollows(pat string, i int) bool {
 	invariant.Check(i < len(pat) && pat[i] == '{', "brace starts here")
-	s := []byte(pat)
-	j := i + 1
+	s := []byte(pat) // patBytes
+	j := i + 1       // braceIndex
 	if !cIsDigit(at(s, j)) {
 		return false
 	}
@@ -355,10 +355,10 @@ func branchPrefixes(branches []*syntax.Regexp) ([]string, bool) {
 	}
 	set := make([]string, 0, len(branches))
 	fold := false
-	for i, br := range branches {
+	for i, br := range branches { // branch
 		br = unwrapMandatory(br)
 		var lit string
-		var f bool
+		var f bool // folded
 		switch {
 		case br.Op == syntax.OpLiteral:
 			lit, f = asciiLiteral(br)
@@ -386,7 +386,7 @@ func partLiteral(re *syntax.Regexp) (string, bool) {
 
 // unwrapMandatory looks through nodes whose sub-expression must match:
 // capture groups, plus, and repeats with a minimum of one or more.
-func unwrapMandatory(re *syntax.Regexp) *syntax.Regexp {
+func unwrapMandatory(re *syntax.Regexp) *syntax.Regexp { // regex
 	invariant.Check(re != nil, "node given")
 	for depth := 0; depth < 8; depth++ {
 		mandatory := re.Op == syntax.OpCapture || re.Op == syntax.OpPlus ||
@@ -440,13 +440,13 @@ const maxAlternateLiterals = 16
 // asciiLiteral is a literal node's text when every rune is ASCII, lower
 // cased when the node folds case (the parser stores folded letters as
 // their smallest equivalent, the upper-case ASCII letter).
-func asciiLiteral(re *syntax.Regexp) (string, bool) {
+func asciiLiteral(re *syntax.Regexp) (string, bool) { // regex
 	invariant.Check(re != nil, "node given")
 	if re.Op != syntax.OpLiteral || len(re.Rune) == 0 {
 		return "", false
 	}
 	fold := re.Flags&syntax.FoldCase != 0
-	var b strings.Builder
+	var b strings.Builder // builder
 	for _, r := range re.Rune {
 		if r >= 0x80 || r <= 0 {
 			return "", false

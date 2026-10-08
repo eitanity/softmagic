@@ -18,7 +18,7 @@ import (
 // setOffset is msetoffset: establish ms->offset for the line. It returns
 // false when the line cannot be evaluated (a from-end offset beyond the
 // window), which the caller treats as `goto flush`.
-func (s *scan) setOffset(m *record, f *frame, contLevel int32) bool {
+func (s *scan) setOffset(m *record, f *frame, contLevel int32) bool { // magicLine
 	invariant.Check(contLevel >= 0 && int(contLevel) < maxLevels, "continuation level within bounds")
 	invariant.Check(f.n >= 0, "window length non-negative")
 	if m.flag&flagOffNegative != 0 {
@@ -42,13 +42,13 @@ func (s *scan) setOffset(m *record, f *frame, contLevel int32) bool {
 // window's end, or, as the reference's buffer_fill does for a file it
 // opened, from the end of the file's last bytes (as many as the window
 // holds), which past MaxBytes are not the window's.
-func (s *scan) setOffsetFromEnd(m *record, f *frame) bool {
+func (s *scan) setOffsetFromEnd(m *record, f *frame) bool { // magicLine
 	invariant.Check(m.flag&flagOffNegative != 0, "a line counted from the end")
 	invariant.Check(f.n >= 0, "window length non-negative")
 	if f.o != 0 {
 		return false // the reference refuses a non-zero base here
 	}
-	n := int64(f.n)
+	n := int64(f.n) // frameLength
 	if s.tailApplies(m) {
 		t, ok := s.fileTail(f.n)
 		if !ok {
@@ -92,14 +92,14 @@ func readsOneValue(m *record) bool {
 // fileTail is the file's last min(size, n) bytes, read once per call.
 func (s *scan) fileTail(n int) ([]byte, bool) {
 	invariant.Check(n >= 0 && s.src != nil, "a tail of an IdentifyAt input")
-	l := int64(n)
+	l := int64(n) // tailLength
 	if s.srcSize < l {
 		l = s.srcSize
 	}
 	if len(s.tail) == int(l) && s.tailRead {
 		return s.tail, true
 	}
-	b, ok := s.readAt(s.srcSize-l, int(l))
+	b, ok := s.readAt(s.srcSize-l, int(l)) // tail
 	if !ok {
 		return nil, false
 	}
@@ -113,7 +113,7 @@ func (s *scan) fileTail(n int) ([]byte, bool) {
 
 // mgetLine is mget over the window the reference's bb holds: the frame's
 // own, or the file's tail after a line counted from the end.
-func (s *scan) mgetLine(m *record, f *frame) (int, bool) {
+func (s *scan) mgetLine(m *record, f *frame) (int, bool) { // frame
 	invariant.Check(f.base+f.n <= len(s.buf), "frame window within the buffer")
 	if !f.onTail || !readsOneValue(m) || !s.tailRead {
 		return s.mget(m, f)
@@ -132,7 +132,7 @@ func (s *scan) mgetLine(m *record, f *frame) (int, bool) {
 // offsets, and converts it. It returns r (0 no data, 1 ready, -1 fatal)
 // and whether a child frame was pushed for a "use" or "indirect" line, in
 // which case finishUse/finishIndirect complete the call later.
-func (s *scan) mget(m *record, f *frame) (r int, pushed bool) {
+func (s *scan) mget(m *record, f *frame) (r int, pushed bool) { // magicLine
 	invariant.Check(f.base+f.n <= len(s.buf), "frame window within the buffer")
 	invariant.Check(m.typ != tInvalid, "line has a type")
 	// The reference checks both counts before every line, not only before
@@ -149,7 +149,7 @@ func (s *scan) mget(m *record, f *frame) (r int, pushed bool) {
 	offset := s.offset
 	s.mcopy(m, m.flag&flagIndir != 0, win, offset+f.o)
 	if m.flag&flagIndir != 0 {
-		ok := false
+		var ok bool
 		offset, ok = s.indirectOffset(m, f, win, offset)
 		if !ok {
 			return 0, false
@@ -179,9 +179,9 @@ func (s *scan) mget(m *record, f *frame) (r int, pushed bool) {
 }
 
 // enoughData is mget's "verify we have enough data" switch.
-func (s *scan) enoughData(m *record, nbytes int, offset uint32) bool {
+func (s *scan) enoughData(m *record, nbytes int, offset uint32) bool { // magicLine
 	invariant.Check(nbytes >= 0, "window length non-negative")
-	o := int64(offset)
+	o := int64(offset) // wideOffset
 	switch m.typ {
 	case tByte:
 		return !s.oob(nbytes, o, 1)
@@ -210,7 +210,7 @@ func (s *scan) enoughData(m *record, nbytes int, offset uint32) bool {
 // mcopy copies the bytes the test reads into s.value, or for search,
 // regex and der sets up the search region. The copy is the reference's:
 // 128 bytes (or the string range) from offset, zero-padded.
-func (s *scan) mcopy(m *record, indir bool, win []byte, offset uint32) {
+func (s *scan) mcopy(m *record, indir bool, win []byte, offset uint32) { // magicLine
 	invariant.Check(len(win) <= len(s.buf), "copy source is the window")
 	nbytes := len(win)
 	size := maxString
@@ -259,7 +259,7 @@ func (s *scan) setSearchRegion(win []byte, offset uint32) {
 
 // setRegexRegion is mcopy's FILE_REGEX case: the region is bounded by the
 // rule's byte or line count and by regexMax.
-func (s *scan) setRegexRegion(m *record, win []byte, offset uint32) {
+func (s *scan) setRegexRegion(m *record, win []byte, offset uint32) { // magicLine
 	invariant.Check(m.typ == tRegex, "regex line")
 	invariant.Check(len(win) <= len(s.buf), "region within the buffer")
 	nbytes := len(win)
@@ -290,10 +290,10 @@ func (s *scan) setRegexRegion(m *record, win []byte, offset uint32) {
 func regexLineLimit(region []byte, linecnt int) int {
 	invariant.Check(linecnt >= 0, "line count non-negative")
 	end := len(region)
-	last := 0
-	b := 0
+	var last int
+	b := 0 // lineStart
 	for lines := linecnt; lines > 0 && b < end; lines-- {
-		nl := indexByteFrom(region, b, '\n')
+		nl := indexByteFrom(region, b, '\n') // lineEnd
 		if nl < 0 {
 			nl = indexByteFrom(region, b, '\r')
 			if nl < 0 {
@@ -328,7 +328,7 @@ func indexByteFrom(b []byte, i int, c byte) int {
 
 // copyString16 is mcopy's 16-bit string case: the low (or high) bytes of
 // UTF-16 units, with an embedded NUL unit turned into a space.
-func (s *scan) copyString16(m *record, win []byte, offset uint32) {
+func (s *scan) copyString16(m *record, win []byte, offset uint32) { // magicLine
 	invariant.Check(m.typ == tBeString16 || m.typ == tLeString16, "16-bit string line")
 	for i := range s.value {
 		s.value[i] = 0
@@ -360,7 +360,7 @@ func (s *scan) copyString16(m *record, win []byte, offset uint32) {
 
 // indirectOffset resolves an "(off.t[op]adj)" offset: the value at the
 // current offset, combined with the adjustment, becomes the new offset.
-func (s *scan) indirectOffset(m *record, f *frame, win []byte, offset uint32) (uint32, bool) {
+func (s *scan) indirectOffset(m *record, f *frame, win []byte, offset uint32) (uint32, bool) { // magicLine
 	invariant.Check(m.flag&flagIndir != 0, "indirect line")
 	nbytes := len(win)
 	off := int64(m.inOffset)
@@ -404,7 +404,7 @@ func (s *scan) indirectOffset(m *record, f *frame, win []byte, offset uint32) (u
 // as the in_type says, sign- or zero-extended.
 func (s *scan) indirectLHS(inType fileType, sgn bool) (int64, bool) {
 	invariant.Check(typeSize(inType) <= maxString, "indirect value fits the copy")
-	v := s.value[:]
+	v := s.value[:] // value
 	switch inType {
 	case tByte:
 		return extend(uint64(v[0]), 8, sgn), true
@@ -435,7 +435,7 @@ func (s *scan) indirectLHS(inType fileType, sgn bool) (int64, bool) {
 }
 
 // readIndirectAdjust reads the "((x))" inner value at window offset at.
-func (s *scan) readIndirectAdjust(m *record, f *frame, win []byte, at int64, sgn bool) (int64, bool) {
+func (s *scan) readIndirectAdjust(m *record, f *frame, win []byte, at int64, sgn bool) (int64, bool) { // indirOffset
 	invariant.Check(m.inOp&opIndirect != 0, "double indirection requested")
 	inType := cvtFlip(m.inType, f.flip)
 	size := typeSize(inType)
@@ -445,7 +445,7 @@ func (s *scan) readIndirectAdjust(m *record, f *frame, win []byte, at int64, sgn
 	if size == 0 || s.oob(len(win), at, size) {
 		return 0, false
 	}
-	b := win[at:]
+	b := win[at:] // indirBytes
 	switch inType {
 	case tByte:
 		return extend(uint64(b[0]), 8, sgn), true
@@ -473,7 +473,7 @@ func (s *scan) readIndirectAdjust(m *record, f *frame, win []byte, at int64, sgn
 
 // extend is the reference's SEXT macro: sign- or zero-extend the low
 // `bits` of v to 64 bits, as a signed value.
-func extend(v uint64, bits int, sgn bool) int64 {
+func extend(v uint64, bits int, sgn bool) int64 { // value
 	invariant.Check(bits == 8 || bits == 16 || bits == 32 || bits == 64, "extension width")
 	switch bits {
 	case 8:
@@ -516,7 +516,7 @@ func middleEndian32(b []byte) uint32 {
 
 // doOps combines the indirect value with the adjustment as do_ops does,
 // in the reference's intmax_t arithmetic with its overflow refusals.
-func doOps(m *record, lhs, off int64) (uint32, bool) {
+func doOps(m *record, lhs, off int64) (uint32, bool) { // magicLine
 	invariant.Check(m.inOp&opsMask <= opModulo, "indirect operator in range")
 	if lhs >= math.MaxUint32 || lhs <= math.MinInt32 || off >= math.MaxUint32 || off <= math.MinInt32 {
 		return 0, false
@@ -554,10 +554,10 @@ func doOps(m *record, lhs, off int64) (uint32, bool) {
 
 // moffset computes the offset continuation lines are relative to after
 // this line matched, into *op. False is the reference's -1 or 0.
-func (s *scan) moffset(m *record, f *frame, op *int32) bool {
+func (s *scan) moffset(m *record, f *frame, op *int32) bool { // offsetPtr
 	invariant.Check(f.n >= 0, "window length non-negative")
 	invariant.Check(op != nil, "offset result has a target")
-	var o int64
+	var o int64 // offset
 	switch {
 	case m.typ == tByte:
 		o = int64(s.offset) + 1
@@ -595,7 +595,7 @@ func (s *scan) moffset(m *record, f *frame, op *int32) bool {
 
 // searchEnd is moffset's regex and search cases: the end of the match,
 // or its start with the /s modifier.
-func (s *scan) searchEnd(m *record, f *frame) int64 {
+func (s *scan) searchEnd(m *record, f *frame) int64 { // magicLine
 	invariant.Check(m.typ == tRegex || m.typ == tSearch, "search line")
 	vlen := int(m.vallen)
 	if m.typ == tRegex {
@@ -611,7 +611,7 @@ func (s *scan) searchEnd(m *record, f *frame) int64 {
 // a relation other than = and !, the file's string is truncated at the
 // first CR or LF when the rule's own string is empty, as the reference
 // does in place.
-func (s *scan) stringEnd(m *record) int64 {
+func (s *scan) stringEnd(m *record) int64 { // magicLine
 	invariant.Check(isString(m.typ) || m.typ == tBeString16 || m.typ == tLeString16, "string line")
 	if m.reln == '=' || m.reln == '!' {
 		return int64(s.offset) + int64(m.vallen)
@@ -671,7 +671,7 @@ func isWidth8(t fileType) bool {
 
 // pushUse starts evaluating the named entry as a child frame (mget's
 // FILE_USE case up to the recursive match call).
-func (s *scan) pushUse(m *record, f *frame, offset uint32) (int, bool) {
+func (s *scan) pushUse(m *record, f *frame, offset uint32) (int, bool) { // frame
 	invariant.Check(m.typ == tUse, "use line")
 	name := m.valueBytes()
 	flip := f.flip
@@ -702,7 +702,7 @@ func (s *scan) pushUse(m *record, f *frame, offset uint32) (int, bool) {
 }
 
 // finishUse completes the parent's mget after a "use" child returned rv.
-func (s *scan) finishUse(parent, child *frame, rv bool) int {
+func (s *scan) finishUse(parent, child *frame, rv bool) int { // returnVal
 	invariant.Check(child.kind == kindUse, "finishing a use frame")
 	invariant.Check(s.names > 0, "name count positive")
 	nfound := child.foundMatch
@@ -728,7 +728,7 @@ func (s *scan) finishUse(parent, child *frame, rv bool) int {
 
 // pushIndirect starts evaluating the whole binary set over the window
 // from offset as a child frame (mget's FILE_INDIRECT case).
-func (s *scan) pushIndirect(m *record, f *frame, offset uint32) (int, bool) {
+func (s *scan) pushIndirect(m *record, f *frame, offset uint32) (int, bool) { // frame
 	invariant.Check(m.typ == tIndirect, "indirect line")
 	if m.strFlags()&indirectRelative != 0 {
 		offset += f.o
@@ -751,12 +751,12 @@ func (s *scan) pushIndirect(m *record, f *frame, offset uint32) (int, bool) {
 
 // finishIndirect completes the parent's mget after an "indirect" child:
 // its output is re-emitted after the line's own description.
-func (s *scan) finishIndirect(parent, child *frame, rv bool) int {
+func (s *scan) finishIndirect(parent, child *frame, rv bool) int { // returnVal
 	invariant.Check(child.kind == kindIndirect, "finishing an indirect frame")
 	invariant.Check(child.savedOutLen <= s.outLen, "child output follows the saved length")
 	childOut := s.out[child.savedOutLen:s.outLen]
 	tmp := s.rxScratch(maxOutput) // free here: no regex runs between push and pop
-	n := copy(tmp, childOut)
+	n := copy(tmp, childOut)      // childOutLen
 	childSeps := s.nseps
 	s.outLen, s.nseps = child.savedOutLen, child.savedNseps
 	if !rv {
@@ -774,7 +774,7 @@ func (s *scan) finishIndirect(parent, child *frame, rv bool) int {
 
 // moveSeps reinstates the separators an indirect child printed, now that
 // its output is re-emitted delta bytes later.
-func (s *scan) moveSeps(from, to, delta int) {
+func (s *scan) moveSeps(from, to, delta int) { // sepEnd
 	invariant.Check(from >= 0 && from <= to && to <= maxSeps, "separator range within cap")
 	invariant.Check(delta >= 0, "the parent's text only moves the child's output later")
 	for i := from; i < to; i++ {

@@ -22,7 +22,7 @@ import (
 // name as the reference does, and builds the sorted database. Files whose
 // names begin with a dot are skipped, as are directories and anything
 // else that is not a regular file.
-func Compile(fsys fs.FS, o softmagic.CompileOptions) (*softmagic.Database, error) {
+func Compile(fsys fs.FS, o softmagic.CompileOptions) (*softmagic.Database, error) { // compileOpts
 	if fsys == nil {
 		return nil, &softmagic.CompileError{File: "", Line: 0, Msg: "nil fs.FS"}
 	}
@@ -44,7 +44,7 @@ func Compile(fsys fs.FS, o softmagic.CompileOptions) (*softmagic.Database, error
 // Dump is file -c over a rule directory: each rule line, in the order
 // read, in libmagic's parsed form (see softmagic.DumpSources). It reads
 // fsys as Compile does.
-func Dump(fsys fs.FS, o softmagic.CompileOptions) (string, error) {
+func Dump(fsys fs.FS, o softmagic.CompileOptions) (string, error) { // compileOpts
 	if fsys == nil {
 		return "", &softmagic.CompileError{File: "", Line: 0, Msg: "nil fs.FS"}
 	}
@@ -76,7 +76,7 @@ func Append(base, extra *softmagic.Database) (*softmagic.Database, error) {
 // Hash is the identity of a rule set: the hex SHA-256 over each source's
 // name, a newline and its text, in order.
 func Hash(srcs []softmagic.Source) string {
-	h := sha256.New()
+	h := sha256.New() // hasher
 	invariant.Check(h.Size() == sha256.Size, "SHA-256 digest")
 	for _, src := range srcs {
 		h.Write([]byte(src.Name))

@@ -38,7 +38,7 @@ func (s *scan) identifyContinue(charset string) Continued {
 	enc := s.bufferRun(modeEnc, e, true)
 	ext := s.bufferRun(modeExt, e, true)
 	apple := s.bufferRun(modeApple, e, true)
-	c := Continued{
+	c := Continued{ // continued
 		Descriptions: desc.answers, MIMEs: mime.answers, Encodings: enc.answers,
 		Extensions: ext.answers, Apple: apple.answers,
 		Failures: Failures{Description: desc.failure, MIME: mime.failure, Encoding: enc.failure,
@@ -55,7 +55,7 @@ func (s *scan) identifyContinue(charset string) Continued {
 // Apple answers from the description run, which is exact while every run
 // goes to its end; once a hard limit stops one, each mode stops where the
 // reference's own run in that mode would, so each is run.
-func (s *scan) independentResult(r Result) Result {
+func (s *scan) independentResult(r Result) Result { // result
 	invariant.Check(s.savedBuf == nil, "runs start on the input window")
 	invariant.Check(r.Charset != "", "charset already established")
 	e := s.runEncoding()
@@ -101,7 +101,7 @@ func (s *scan) runEncoding() encoding {
 }
 
 // bufferRun is one file_buffer in one mode, with or without MAGIC_CONTINUE.
-func (s *scan) bufferRun(mode matchMode, e encoding, cont bool) runResult {
+func (s *scan) bufferRun(mode matchMode, e encoding, cont bool) runResult { // encoding
 	invariant.Check(mode <= modeEnc, "a known mode")
 	invariant.Check(s.nframes == 0, "runs start with no frames")
 	s.mode, s.cont, s.independent = mode, cont, true
@@ -115,7 +115,7 @@ func (s *scan) bufferRun(mode matchMode, e encoding, cont bool) runResult {
 	if (len(s.buf) < 2 || !s.bufferPhases(e)) && s.abort == "" {
 		s.bufferDefault()
 	}
-	var r runResult
+	var r runResult // runResult
 	if s.abort != "" {
 		r = runResult{failure: Failure{Message: s.abort, Buffer: s.abortBuf, Pushed: s.abortPushed},
 			partial: s.abortPartial}
@@ -133,10 +133,10 @@ func (s *scan) bufferRun(mode matchMode, e encoding, cont bool) runResult {
 // or, under MAGIC_CONTINUE, the last check that ran answered (file_buffer's
 // m, which each check sets and a check switched off by Options.Exclude
 // leaves alone). An error ends the run at once.
-func (s *scan) bufferPhases(e encoding) bool {
+func (s *scan) bufferPhases(e encoding) bool { // encoding
 	invariant.Check(len(s.buf) >= 2, "checks run on two or more bytes")
 	invariant.Check(s.independent, "a run of one mode")
-	m, done := s.bufferBuiltins(e)
+	m, done := s.bufferBuiltins(e) // matched
 	if done {
 		return true
 	}
@@ -182,7 +182,7 @@ func (s *scan) checkdone() bool {
 // whether the last one that ran answered, and whether an answer ended the
 // run. They answer nothing in the extension and Apple modes, and print
 // nothing (though they still answer) for the encoding.
-func (s *scan) bufferBuiltins(e encoding) (m, done bool) {
+func (s *scan) bufferBuiltins(e encoding) (m, done bool) { // encoding
 	invariant.Check(len(s.buf) >= 2, "detectors run on two or more bytes")
 	invariant.Check(s.independent, "a run of one mode")
 	if s.mode == modeExt || s.mode == modeApple {
@@ -216,7 +216,7 @@ func (s *scan) bufferBuiltins(e encoding) (m, done bool) {
 
 // bufferBuiltin prints one detector's answer in the run's mode and reports
 // whether it answered and whether that ended the run.
-func (s *scan) bufferBuiltin(r builtinResult) (bool, bool) {
+func (s *scan) bufferBuiltin(r builtinResult) (bool, bool) { // builtin
 	invariant.Check(s.independent, "a run of one mode")
 	invariant.Check(!r.hit || (r.desc != "" && r.mime != ""), "an answer has a description and a MIME type")
 	if !r.hit {
@@ -237,13 +237,13 @@ func (s *scan) bufferBuiltin(r builtinResult) (bool, bool) {
 // MAGIC_CONTINUE it runs after earlier answers, and in the MIME mode it
 // adds its own answer after them; without it, a MIME answer from the text
 // rules is the answer.
-func (s *scan) bufferText(looksText bool, e encoding) bool {
+func (s *scan) bufferText(looksText bool, e encoding) bool { // textEncoding
 	invariant.Check(s.savedBuf == nil, "text phase starts on the input window")
 	invariant.Check(e.n <= len(s.buf), "classified length within the input")
 	if s.excluded(CheckText) {
 		return false
 	}
-	win, te, ok := s.textWindow(e)
+	win, te, ok := s.textWindow(e) // textEncoding
 	if !ok {
 		return false
 	}
@@ -274,9 +274,9 @@ func (s *scan) bufferText(looksText bool, e encoding) bool {
 
 // textWindow is file_ascmagic's preparation: the NUL-trimmed window and its
 // classification, and whether it is text at all.
-func (s *scan) textWindow(e encoding) ([]byte, encoding, bool) {
+func (s *scan) textWindow(e encoding) ([]byte, encoding, bool) { // encoding
 	invariant.Check(e.n <= len(s.buf), "classified length within the input")
-	n := trimNuls(s.buf)
+	n := trimNuls(s.buf) // textLength
 	if n&1 != 0 && len(s.buf)&1 == 0 {
 		n++ // keep the last UTF-16 unit whole
 	}

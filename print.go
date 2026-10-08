@@ -19,12 +19,12 @@ import (
 )
 
 // mprint prints the line's description with its value substituted.
-func (s *scan) mprint(m *record, f *frame) {
+func (s *scan) mprint(m *record, f *frame) { // rule
 	invariant.Check(f.idx >= 0 && f.idx < f.count, "printing a line within the frame")
 	invariant.Check(m.hasDesc(), "printing a line with a description")
 	s.noteRule(f.first + f.idx)
 	desc := varexpand(m.descString(), s.execBit)
-	v := s.value[:]
+	v := s.value[:] // valueImage
 	switch {
 	case m.typ == tByte:
 		s.printInt(m, desc, uint64(v[0]), 8)
@@ -53,9 +53,9 @@ func (s *scan) mprint(m *record, f *frame) {
 }
 
 // mprintOther prints the DER, GUID, DOS date and time and octal types.
-func (s *scan) mprintOther(m *record, desc string) {
+func (s *scan) mprintOther(m *record, desc string) { // rule
 	invariant.Check(m.hasDesc(), "printing a line with a description")
-	v := s.value[:]
+	v := s.value[:] // valueImage
 	switch m.typ {
 	case tDer:
 		s.printfStr(desc, printable(s.rxScratch(printableMax), v, maxString, s.raw))
@@ -90,7 +90,7 @@ func isDateType(t fileType) bool {
 func (s *scan) printInt(m *record, desc string, raw uint64, bits int) {
 	invariant.Check(!isString(m.typ), "integer line")
 	invariant.Check(bits == 8 || bits == 16 || bits == 32 || bits == 64, "integer width")
-	v := signExtend(&m.recordHead, raw)
+	v := signExtend(&m.recordHead, raw) // signedValue
 	unsigned := m.flag&flagUnsigned != 0
 	if hasStringConv(desc) {
 		var num string
@@ -129,7 +129,7 @@ func hasStringConv(desc string) bool {
 // printString is mprint's string case: the rule's own string for = and
 // !, otherwise the file's bytes, truncated at CR or LF when the rule
 // string is empty and trimmed when /T says so.
-func (s *scan) printString(m *record, desc string) {
+func (s *scan) printString(m *record, desc string) { // rule
 	invariant.Check(m.typ == tString || m.typ == tPString || m.typ == tBeString16 || m.typ == tLeString16, "string line")
 	if m.reln == '=' || m.reln == '!' {
 		s.printfStr(desc, printable(s.rxScratch(printableMax), m.value, maxString, s.raw))
@@ -146,7 +146,7 @@ func (s *scan) printString(m *record, desc string) {
 }
 
 // printSearch prints the bytes a search or regex matched.
-func (s *scan) printSearch(m *record, desc string) {
+func (s *scan) printSearch(m *record, desc string) { // rule
 	invariant.Check(s.search.rmLen >= 0, "match length non-negative")
 	invariant.Check(s.search.start <= len(s.buf), "search start within the buffer")
 	if !s.search.valid {
@@ -168,11 +168,11 @@ func (s *scan) printSearch(m *record, desc string) {
 
 // trimSpace is file_strtrim: leading and trailing C whitespace removed
 // from the C string in b, which ends at its first NUL.
-func trimSpace(b []byte) []byte {
+func trimSpace(b []byte) []byte { // text
 	if nul := indexByteFrom(b, 0, 0); nul >= 0 {
 		b = b[:nul]
 	}
-	i := 0
+	i := 0 // start
 	for ; i < len(b) && cIsSpace(b[i]); i++ {
 	}
 	j := len(b)
@@ -185,14 +185,14 @@ func trimSpace(b []byte) []byte {
 // printable is file_printable: the string up to its NUL or n bytes, with
 // non-printable bytes as \ooo escapes unless raw (MAGIC_RAW), in a buffer
 // of bufsiz bytes.
-func printable(buf, str []byte, n int, raw bool) []byte {
+func printable(buf, str []byte, n int, raw bool) []byte { // maxLength
 	invariant.Check(len(buf) <= regexScratchSize, "printable buffer bounded")
 	invariant.Check(len(buf) >= 4, "printable buffer holds an escape")
 	invariant.Check(n >= 0, "length non-negative")
 	out := 0
 	limit := len(buf) - 1
 	for i := 0; i < n && i < len(str) && str[i] != 0 && out < limit; i++ {
-		c := str[i]
+		c := str[i] // char
 		if raw || cIsPrint(c) {
 			buf[out] = c
 			out++
@@ -228,11 +228,11 @@ func varexpand(str string, exec bool) string {
 	out := ""
 	rest := str
 	for n := 0; n < maxDesc; n++ {
-		i := indexSubstr(rest, "${")
+		i := indexSubstr(rest, "${") // placeholderStart
 		if i < 0 {
 			return out + rest
 		}
-		j := i + 2
+		j := i + 2 // nameStart
 		if j+1 >= len(rest) || rest[j] != 'x' || rest[j+1] != '?' {
 			return out + rest
 		}
@@ -267,17 +267,17 @@ func indexSubstr(s, sub string) int {
 // guidString is file_print_guid: the GUID as %.8X-%.4X-%.4X-%.2X%.2X-...
 // from the union image; a big-endian GUID has its first three fields
 // byte-swapped first.
-func guidString(v []byte, be bool) string {
+func guidString(v []byte, be bool) string { // guidImage
 	invariant.Check(len(v) >= 16, "GUID image complete")
-	d1 := binary.LittleEndian.Uint32(v[0:4])
-	d2 := binary.LittleEndian.Uint16(v[4:6])
-	d3 := binary.LittleEndian.Uint16(v[6:8])
+	d1 := binary.LittleEndian.Uint32(v[0:4]) // data1
+	d2 := binary.LittleEndian.Uint16(v[4:6]) // data2
+	d3 := binary.LittleEndian.Uint16(v[6:8]) // data3
 	if be {
 		d1 = binary.BigEndian.Uint32(v[0:4])
 		d2 = binary.BigEndian.Uint16(v[4:6])
 		d3 = binary.BigEndian.Uint16(v[6:8])
 	}
-	var b [36]byte
+	var b [36]byte // text
 	hexUpper(b[0:8], uint64(d1))
 	b[8] = '-'
 	hexUpper(b[9:13], uint64(d2))
@@ -307,7 +307,7 @@ const maxCTime = 0x3afff487cf
 
 // fmtDateTime is file_fmtdatetime: asctime's format, in UTC or local time,
 // from a 32- or 64-bit second count or a Windows FILETIME.
-func fmtDateTime(t fileType, v []byte) string {
+func fmtDateTime(t fileType, v []byte) string { // dateImage
 	invariant.Check(isDateType(t), "date type")
 	invariant.Check(len(v) >= 8, "date image complete")
 	var secs int64
@@ -344,7 +344,7 @@ func fmtDateTime(t fileType, v []byte) string {
 }
 
 // fmtMSDOSDate is file_fmtdate: strftime "%b %d %Y" of a DOS date.
-func fmtMSDOSDate(v uint16) string {
+func fmtMSDOSDate(v uint16) string { // dosDate
 	invariant.Check(v>>9 <= 127, "year field within seven bits")
 	day := int(v & 0x1f)
 	mon := int((v>>5)&0xf) - 1
@@ -374,7 +374,7 @@ func pad2(n int) string {
 
 // fmtNumber is file_fmtnum: the string parsed in the base and printed in
 // decimal, or "*Invalid number*".
-func fmtNumber(b []byte, base uint64) string {
+func fmtNumber(b []byte, base uint64) string { // numberText
 	invariant.Check(len(b) <= maxString, "number text within MAXstring")
 	invariant.Check(base == 8 || base == 10 || base == 16, "supported base")
 	n := 0

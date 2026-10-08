@@ -52,12 +52,12 @@ func (s *scan) cdfHeaderBytes() []byte {
 // returned and removed from the output.
 func (s *scan) cdfRun(mime bool) (string, bool) {
 	start := s.outLen
-	pr := cdfPrinter{s: s, mime: mime}
+	pr := cdfPrinter{s: s, mime: mime} // printer
 	c := &cdfFile{s: s, buf: s.buf, root: -1, streamSlot: 3}
 	var ok bool
 	c.h, ok = cdfReadHeader(s.cdfHeaderBytes())
 	invariant.Check(ok, "header checked by detectCDF")
-	i, expn := pr.body(c)
+	i, expn := pr.body(c) // handlerIdx
 	if i == -1 {
 		// The reference's default handler.
 		if pr.notMime() {
@@ -77,7 +77,7 @@ func (s *scan) cdfRun(mime bool) (string, bool) {
 
 // body is the sequence of attempts in file_trycdf; it returns the
 // reference's i and the explanation for the default handler.
-func (pr cdfPrinter) body(c *cdfFile) (int, string) {
+func (pr cdfPrinter) body(c *cdfFile) (int, string) { // cdfFile
 	switch {
 	case !c.readSAT():
 		return -1, "Can't read SAT"
@@ -96,7 +96,7 @@ func (pr cdfPrinter) body(c *cdfFile) (int, string) {
 		}
 		return 1, ""
 	}
-	i, expn := pr.trySummary(c, "\x05SummaryInformation")
+	i, expn := pr.trySummary(c, "\x05SummaryInformation") // handlerIdx
 	if i <= 0 {
 		var e2 string
 		i, e2 = pr.trySummary(c, "\x05DocumentSummaryInformation")
@@ -119,8 +119,8 @@ func isHWP5(st *cdfStream) bool {
 }
 
 // trySummary reads a summary-information stream and reports on it.
-func (pr cdfPrinter) trySummary(c *cdfFile, name string) (int, string) {
-	st, found, ok := c.readUserStream(name)
+func (pr cdfPrinter) trySummary(c *cdfFile, name string) (int, string) { // cdfFile
+	st, found, ok := c.readUserStream(name) // stream
 	if !found {
 		return -1, ""
 	}
@@ -131,8 +131,8 @@ func (pr cdfPrinter) trySummary(c *cdfFile, name string) (int, string) {
 }
 
 // checkSummaryInfo is cdf_check_summary_info.
-func (pr cdfPrinter) checkSummaryInfo(c *cdfFile, st *cdfStream) (int, string) {
-	i := pr.fileSummaryInfo(c, st)
+func (pr cdfPrinter) checkSummaryInfo(c *cdfFile, st *cdfStream) (int, string) { // cdfFile
+	i := pr.fileSummaryInfo(c, st) // handlerIdx
 	if i < 0 {
 		return i, "Can't expand summary_info"
 	}
@@ -174,8 +174,8 @@ func dirNameString(d *cdfDir) string {
 }
 
 // fileSummaryInfo is cdf_file_summary_info.
-func (pr cdfPrinter) fileSummaryInfo(c *cdfFile, st *cdfStream) int {
-	si, props, ok := unpackSummaryInfo(st)
+func (pr cdfPrinter) fileSummaryInfo(c *cdfFile, st *cdfStream) int { // cdfFile
+	si, props, ok := unpackSummaryInfo(st) // summaryInfo
 	if !ok {
 		return -1
 	}
@@ -186,7 +186,7 @@ func (pr cdfPrinter) fileSummaryInfo(c *cdfFile, st *cdfStream) int {
 		} else {
 			pr.write(", Big Endian")
 		}
-		lo, hi := strconv.Itoa(int(si.osVersion&0xff)), strconv.Itoa(int(si.osVersion>>8))
+		lo, hi := strconv.Itoa(int(si.osVersion&0xff)), strconv.Itoa(int(si.osVersion>>8)) // osVersionLow
 		switch si.os {
 		case 2:
 			pr.write(", Os: Windows, Version " + lo + "." + hi)
@@ -216,7 +216,7 @@ func (pr cdfPrinter) propertyInfo(c *cdfFile, props []cdfProp) int {
 		str = clsidName(c.dir[c.root].storageUUID, true)
 	}
 	for i := range props {
-		p := &props[i]
+		p := &props[i] // property
 		name := propertyName(p.id)
 		switch p.typ {
 		case cdfTypeNull, cdfTypeClipboard:
@@ -256,7 +256,7 @@ func (pr cdfPrinter) field(name, value string) {
 
 // stringProperty prints a string property, or in MIME mode derives the
 // type from the creating application's name.
-func (pr cdfPrinter) stringProperty(p *cdfProp, name, str string) string {
+func (pr cdfPrinter) stringProperty(p *cdfProp, name, str string) string { // property
 	if len(p.str) <= 1 {
 		return str
 	}
@@ -273,7 +273,7 @@ func (pr cdfPrinter) stringProperty(p *cdfProp, name, str string) string {
 
 // filetime prints a FILETIME property as elapsed time or a date.
 func (pr cdfPrinter) filetime(p *cdfProp, name string) {
-	tp := int64FromBits(p.u64)
+	tp := int64FromBits(p.u64) // timestamp
 	if tp == 0 {
 		return
 	}
@@ -285,7 +285,7 @@ func (pr cdfPrinter) filetime(p *cdfProp, name string) {
 }
 
 // dirInfo is cdf_file_dir_info: known stream and storage names.
-func (pr cdfPrinter) dirInfo(c *cdfFile) int {
+func (pr cdfPrinter) dirInfo(c *cdfFile) int { // cdfFile
 	invariant.Check(len(c.dir) <= cdfMaxDirs, "directory bounded")
 	type section struct {
 		name, mime string
@@ -301,7 +301,7 @@ func (pr cdfPrinter) dirInfo(c *cdfFile) int {
 		{"Microsoft Outlook Message", "vnd.ms-outlook", [2]string{"__properties_version1.0", "__recip_version1.0_#00000000"}, [2]uint8{cdfDirUserStream, cdfDirUserStorage}},
 	}
 	for i := range c.dir {
-		for sd := range table {
+		for sd := range table { // sectionIdx
 			if !sectionMatches(&table[sd].streams, &table[sd].types, &c.dir[i]) {
 				continue
 			}
@@ -329,7 +329,7 @@ func sectionMatches(streams *[2]string, types *[2]uint8, d *cdfDir) bool {
 // catalogInfo is cdf_file_catalog_info and cdf_file_catalog: a
 // Thumbs.db catalog.
 func (pr cdfPrinter) catalogInfo(c *cdfFile) int {
-	st, found, ok := c.readUserStream("Catalog")
+	st, found, ok := c.readUserStream("Catalog") // stream
 	if !found || !ok {
 		return -1
 	}
@@ -356,20 +356,20 @@ func (pr cdfPrinter) catalogInfo(c *cdfFile) int {
 // unpackCatalog is cdf_unpack_catalog: the entry names of a catalog.
 func unpackCatalog(st *cdfStream) ([]string, bool) {
 	tab := st.tab[:st.size()]
-	nr := catalogRecords(tab)
+	nr := catalogRecords(tab) // recordCount
 	if nr == 0 {
 		return nil, false
 	}
 	nr--
 	names := make([]string, 0, nr)
-	b := 0
+	b := 0 // recordOff
 	for i := 0; i < nr && b <= len(tab)-16; i++ {
 		reclen := int(binary.LittleEndian.Uint16(tab[b:]))
 		if reclen < 14 {
 			b += reclen
 			continue
 		}
-		n := reclen - 14
+		n := reclen - 14 // nameLen
 		if n > 255 {
 			n = 255
 		}
@@ -385,7 +385,7 @@ func unpackCatalog(st *cdfStream) ([]string, bool) {
 // catalogRecords counts the length-prefixed records up to a zero length.
 func catalogRecords(tab []byte) int {
 	invariant.Check(len(tab) <= cdfSATLimit*4, "catalog bounded")
-	nr, b := 0, 0
+	nr, b := 0, 0 // recordOff
 	for ; nr <= len(tab) && b <= len(tab)-2; nr++ {
 		reclen := int(binary.LittleEndian.Uint16(tab[b:]))
 		if reclen == 0 {
@@ -403,7 +403,7 @@ func catalogRecords(tab []byte) int {
 func catalogName(b []byte, n int) string {
 	invariant.Check(n >= 0 && n <= 255 && len(b) >= 2*n, "name units within the record")
 	var name [255]byte
-	k := 0
+	k := 0 // nameIdx
 	for ; k < n; k++ {
 		u := binary.LittleEndian.Uint16(b[2*k:])
 		if u == 0 {

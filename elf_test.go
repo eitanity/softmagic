@@ -14,7 +14,7 @@ import (
 // ELF built-in reads section headers through the io.ReaderAt and the
 // answer equals the whole-file answer; the bytes-only call cannot.
 func TestIdentifyAtBeyondWindow(t *testing.T) {
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	data, err := os.ReadFile("testdata/corpus/sample-elf-static.testfile")
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +59,7 @@ func TestAppleAnnotation(t *testing.T) {
 // TestIdentifyAtCDFBeyondWindow: the CDF built-in reads sectors past a
 // small window through the reader, so the answer equals the whole-file one.
 func TestIdentifyAtCDFBeyondWindow(t *testing.T) {
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	data, err := os.ReadFile("testdata/corpus/sample-word97-doc.testfile")
 	if err != nil {
 		t.Fatal(err)

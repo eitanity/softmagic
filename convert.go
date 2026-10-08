@@ -14,7 +14,7 @@ import (
 )
 
 // cvtFlip swaps a type's endianness when a "use ^name" asked for it.
-func cvtFlip(t fileType, flip bool) fileType {
+func cvtFlip(t fileType, flip bool) fileType { // fileType
 	if !flip {
 		return t
 	}
@@ -56,7 +56,7 @@ func cvtFlip(t fileType, flip bool) fileType {
 	}
 }
 
-func cvtFlipFloat(t fileType) fileType {
+func cvtFlipFloat(t fileType) fileType { // fileType
 	switch t {
 	case tBeFloat:
 		return tLeFloat
@@ -83,10 +83,10 @@ func cvtFlipFloat(t fileType) fileType {
 // type, storing the integer image little-endian in value[0:8] as the
 // reference stores it in its union, and applies the rule's mask operator.
 // False is the reference's "zerodivide/overflow" refusal.
-func (s *scan) mconvert(m *record, flip bool) bool {
+func (s *scan) mconvert(m *record, flip bool) bool { // magicLine
 	invariant.Check(m.typ != tInvalid, "line has a type")
-	v := s.value[:]
-	switch t := cvtFlip(m.typ, flip); t {
+	v := s.value[:]                       // value
+	switch t := cvtFlip(m.typ, flip); t { // fileType
 	case tByte:
 		return s.cvtInt(m, uint64(v[0]), 8)
 	case tShort, tMSDOSDate, tMSDOSTime, tLeShort, tLeMSDOSDate, tLeMSDOSTime:
@@ -115,9 +115,9 @@ func (s *scan) mconvert(m *record, flip bool) bool {
 
 // mconvertFloat handles the float and double types and the types that
 // need no conversion.
-func (s *scan) mconvertFloat(m *record, t fileType) bool {
+func (s *scan) mconvertFloat(m *record, t fileType) bool { // magicLine
 	invariant.Check(t != tByte && !isWidth2(t) && !isWidth4(t) && !isWidth8(t) || isFloatType(t) || isDoubleType(t), "type without an integer conversion")
-	v := s.value[:]
+	v := s.value[:] // value
 	switch t {
 	case tFloat:
 		return s.cvtFloat(m, binary.LittleEndian.Uint32(v))
@@ -150,7 +150,7 @@ func widthMask(bits int) uint64 {
 // and signedness, then store the result. The arithmetic is done on 64-bit
 // values and truncated to the width, which is what the C casts do; the
 // signed division and modulo cases use the sign-extended operands.
-func (s *scan) cvtInt(m *record, val uint64, bits int) bool {
+func (s *scan) cvtInt(m *record, val uint64, bits int) bool { // magicLine
 	invariant.Check(bits == 8 || bits == 16 || bits == 32 || bits == 64, "integer width")
 	mask := widthMask(bits)
 	unsigned := m.flag&flagUnsigned != 0
@@ -173,7 +173,7 @@ func (s *scan) cvtInt(m *record, val uint64, bits int) bool {
 
 // applyIntOp is one DO_CVT1 case. Division and modulo refuse a zero
 // divisor and the signed MIN/-1 overflow, as the reference does.
-func applyIntOp(op uint8, val, num uint64, bits int, unsigned bool) (uint64, bool) {
+func applyIntOp(op uint8, val, num uint64, bits int, unsigned bool) (uint64, bool) { // operator
 	invariant.Check(op <= opModulo, "operator in range")
 	switch op {
 	case opAnd:
@@ -195,7 +195,7 @@ func applyIntOp(op uint8, val, num uint64, bits int, unsigned bool) (uint64, boo
 	}
 }
 
-func divMod(op uint8, val, num uint64, bits int, unsigned bool) (uint64, bool) {
+func divMod(op uint8, val, num uint64, bits int, unsigned bool) (uint64, bool) { // operator
 	invariant.Check(op == opDivide || op == opModulo, "division operator")
 	if num == 0 {
 		return 0, false
@@ -206,7 +206,7 @@ func divMod(op uint8, val, num uint64, bits int, unsigned bool) (uint64, bool) {
 		}
 		return val % num, true
 	}
-	a, b := extend(val, bits, true), extend(num, bits, true)
+	a, b := extend(val, bits, true), extend(num, bits, true) // dividend
 	if b == -1 && (bits == 32 && a == math.MinInt32 || bits == 64 && a == math.MinInt64) {
 		return 0, false
 	}
@@ -219,13 +219,13 @@ func divMod(op uint8, val, num uint64, bits int, unsigned bool) (uint64, bool) {
 // cvtFloat is cvt_float over a 32-bit image.
 func (s *scan) cvtFloat(m *record, bits uint32) bool {
 	invariant.Check(m.maskOp&opsMask <= opModulo, "operator in range")
-	f := float64(math.Float32frombits(bits))
+	f := float64(math.Float32frombits(bits)) // floatValue
 	if m.maskOrStr != 0 {
-		ok := false
-		f, ok = applyFloatOp(m.maskOp&opsMask, f, float64(float32(m.maskOrStr)))
+		g, ok := applyFloatOp(m.maskOp&opsMask, f, float64(float32(m.maskOrStr)))
 		if !ok {
 			return false
 		}
+		f = g
 	}
 	binary.LittleEndian.PutUint32(s.value[0:4], math.Float32bits(float32(f)))
 	return true
@@ -234,20 +234,20 @@ func (s *scan) cvtFloat(m *record, bits uint32) bool {
 // cvtDouble is cvt_double over a 64-bit image.
 func (s *scan) cvtDouble(m *record, bits uint64) bool {
 	invariant.Check(m.maskOp&opsMask <= opModulo, "operator in range")
-	f := math.Float64frombits(bits)
+	f := math.Float64frombits(bits) // doubleValue
 	if m.maskOrStr != 0 {
-		ok := false
-		f, ok = applyFloatOp(m.maskOp&opsMask, f, float64(m.maskOrStr))
+		g, ok := applyFloatOp(m.maskOp&opsMask, f, float64(m.maskOrStr))
 		if !ok {
 			return false
 		}
+		f = g
 	}
 	binary.LittleEndian.PutUint64(s.value[0:8], math.Float64bits(f))
 	return true
 }
 
 // applyFloatOp is DO_CVT2: only + - * / apply to floating types.
-func applyFloatOp(op uint8, f, num float64) (float64, bool) {
+func applyFloatOp(op uint8, f, num float64) (float64, bool) { // floatValue
 	switch op {
 	case opAdd:
 		return f + num, true
@@ -270,7 +270,7 @@ func applyFloatOp(op uint8, f, num float64) (float64, bool) {
 func (s *scan) cvtPString(m *record) bool {
 	invariant.Check(m.typ == tPString, "pstring line")
 	flags := m.strFlags()
-	sz := pstringLengthSize(flags)
+	sz := pstringLengthSize(flags) // lengthSize
 	if sz == 0 {
 		return false
 	}
@@ -286,9 +286,9 @@ func (s *scan) cvtPString(m *record) bool {
 
 // pstringLength is file_pstring_get_length: the length prefix as the
 // flags describe it, minus its own size when the flag says so.
-func pstringLength(flags uint32, b []byte) int {
+func pstringLength(flags uint32, b []byte) int { // lengthPrefix
 	invariant.Check(len(b) >= 4, "length prefix readable")
-	var n int
+	var n int // stringLength
 	switch flags & pstringLen {
 	case pstring1LE:
 		n = int(b[0])

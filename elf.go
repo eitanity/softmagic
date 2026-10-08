@@ -146,8 +146,8 @@ func (s *scan) tryELF() string {
 	if len(buf) <= 52 || buf[0] != 0x7f || (buf[1] != 'E' && buf[1] != 'O') || buf[2] != 'L' || buf[3] != 'F' {
 		return ""
 	}
-	e := elfState{s: s, class: buf[4], fsize: s.inputSize(), notecount: s.lim.elfNotes}
-	e.swap = buf[5] != 1 // the host is little-endian
+	e := elfState{s: s, class: buf[4], fsize: s.inputSize(), notecount: s.lim.elfNotes} // elf
+	e.swap = buf[5] != 1                                                                // the host is little-endian
 	start := s.outLen
 	s.elfStart = start // the reference reads ELF into a buffer of its own
 	switch e.class {
@@ -241,9 +241,9 @@ type elfPhdr struct {
 	align  uint64
 }
 
-func (e *elfState) parsePhdr(b []byte) elfPhdr {
+func (e *elfState) parsePhdr(b []byte) elfPhdr { // headerBytes
 	invariant.Check(len(b) >= e.phdrSize(), "program header complete")
-	var p elfPhdr
+	var p elfPhdr // programHeader
 	p.typ = e.u32(b[0:])
 	if e.class == elfClass32 {
 		p.offset, p.vaddr, p.filesz, p.align = uint64(e.u32(b[4:])), uint64(e.u32(b[8:])), uint64(e.u32(b[16:])), uint64(e.u32(b[28:]))
@@ -278,7 +278,7 @@ func (e *elfState) phdrExec(off int64, num, size int, haveSections bool) {
 		e.printf(", corrupted program header size")
 		return
 	}
-	st := phdrState{}
+	st := phdrState{} // phdrWalk
 	for ; num > 0; num-- {
 		hb, ok := e.s.readAt(off, size)
 		if !ok {
@@ -295,7 +295,7 @@ func (e *elfState) phdrExec(off int64, num, size int, haveSections bool) {
 }
 
 // phdrEntry handles one program header; false ends the walk.
-func (e *elfState) phdrEntry(st *phdrState, ph *elfPhdr, haveSections bool) bool {
+func (e *elfState) phdrEntry(st *phdrState, ph *elfPhdr, haveSections bool) bool { // phdrWalk
 	invariant.Check(ph.align >= 4 || ph.align&0x80000000 != 0 || ph.align < 4, "alignment read")
 	switch ph.typ {
 	case ptDynamic:
@@ -403,12 +403,12 @@ func (e *elfState) phdrCore(off int64, num, size int) {
 		return
 	}
 	for ; num > 0; num-- {
-		hb, ok := e.s.readAt(off, size)
+		hb, ok := e.s.readAt(off, size) // readOK
 		if !ok {
 			e.printf(", can't read elf program headers at " + strconv.FormatInt(off, 10))
 			return
 		}
-		ph := e.parsePhdr(hb)
+		ph := e.parsePhdr(hb) // programHeader
 		off += int64(size)
 		if e.fsize >= 0 && offInt(ph.offset) > e.fsize {
 			continue
@@ -440,9 +440,9 @@ type elfShdr struct {
 	size   uint64
 }
 
-func (e *elfState) parseShdr(b []byte) elfShdr {
+func (e *elfState) parseShdr(b []byte) elfShdr { // headerBytes
 	invariant.Check(len(b) >= e.shdrSize(), "section header complete")
-	var sh elfShdr
+	var sh elfShdr // sectionHeader
 	sh.name, sh.typ = e.u32(b[0:]), e.u32(b[4:])
 	if e.class == elfClass32 {
 		sh.offset, sh.size = uint64(e.u32(b[16:])), uint64(e.u32(b[20:]))
@@ -474,7 +474,7 @@ func (e *elfState) shdr(off int64, num, size, strtab int) {
 		e.printf(", too large section header offset " + strconv.FormatInt(nameOff, 10))
 		return
 	}
-	st := shdrState{stripped: true}
+	st := shdrState{stripped: true} // shdrWalk
 	for ; num > 0; num-- {
 		if !e.oneSection(&st, off, size, nameOff) {
 			return
@@ -493,13 +493,13 @@ type shdrState struct {
 }
 
 // oneSection handles one section header; false ends the walk.
-func (e *elfState) oneSection(st *shdrState, off int64, size int, nameOff int64) bool {
-	hb, ok := e.s.readAt(off, size)
+func (e *elfState) oneSection(st *shdrState, off int64, size int, nameOff int64) bool { // shdrWalk
+	hb, ok := e.s.readAt(off, size) // readOK
 	if !ok {
 		e.printf(", can't read elf section at " + strconv.FormatInt(off, 10))
 		return false
 	}
-	sh := e.parseShdr(hb)
+	sh := e.parseShdr(hb) // sectionHeader
 	nameAt := nameOff + int64(sh.name)
 	name, ok := e.s.readUpTo(nameAt, 49)
 	if !ok {
@@ -526,7 +526,7 @@ func (e *elfState) oneSection(st *shdrState, off int64, size int, nameOff int64)
 }
 
 // noteSection is doshn's SHT_NOTE case.
-func (e *elfState) noteSection(sh *elfShdr) bool {
+func (e *elfState) noteSection(sh *elfShdr) bool { // sectionHeader
 	if e.fsize >= 0 && sh.size+sh.offset > uint64(e.fsize) {
 		e.printf(", note offset/size 0x" + strconv.FormatUint(sh.offset, 16) + "+0x" +
 			strconv.FormatUint(sh.size, 16) + " exceeds file size 0x" + strconv.FormatInt(e.fsize, 16))
@@ -553,7 +553,7 @@ func (e *elfState) noteSection(sh *elfShdr) bool {
 }
 
 // sectionSummary prints what doshn concludes after the walk.
-func (e *elfState) sectionSummary(st *shdrState) {
+func (e *elfState) sectionSummary(st *shdrState) { // shdrWalk
 	invariant.Check(st.nbadcap >= 0, "bad capability count non-negative")
 	if st.hasDebugInfo {
 		e.printf(", with debug_info")
@@ -576,7 +576,7 @@ func (s *scan) inputSize() int64 {
 
 // readAt returns exactly n bytes at off from the input: the window, or
 // the IdentifyAt reader beyond it.
-func (s *scan) readAt(off int64, n int) ([]byte, bool) {
+func (s *scan) readAt(off int64, n int) ([]byte, bool) { // length
 	invariant.Check(n >= 0, "length non-negative")
 	if off < 0 || n > elfShsizeMax || off > s.inputSize() {
 		s.oobHit = true
@@ -599,7 +599,7 @@ func (s *scan) readAt(off int64, n int) ([]byte, bool) {
 
 // readUpTo returns up to n bytes at off, short at the end of the input as
 // pread is; false only when nothing can be read.
-func (s *scan) readUpTo(off int64, n int) ([]byte, bool) {
+func (s *scan) readUpTo(off int64, n int) ([]byte, bool) { // maxLength
 	invariant.Check(n >= 0, "length non-negative")
 	size := s.inputSize()
 	if off < 0 || off >= size {

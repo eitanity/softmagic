@@ -45,9 +45,9 @@ func TestContinueCorpus(t *testing.T) {
 
 // continueAnswers identifies a file as the CLI does, with continue and raw
 // output, and returns each mode's list joined as file -k prints it.
-func continueAnswers(t *testing.T, db *Database, path string) [5]string {
+func continueAnswers(t *testing.T, db *Database, path string) [5]string { // database
 	t.Helper()
-	f, err := os.Open(filepath.Clean(path))
+	f, err := os.Open(filepath.Clean(path)) // corpusFile
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func latin1Bytes(s string) string {
 // TestContinueLeavesFirstMatch: asking for continue mode changes nothing
 // but Continued.
 func TestContinueLeavesFirstMatch(t *testing.T) {
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	files, err := filepath.Glob("testdata/corpus/*.testfile")
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func mustJSON(t *testing.T, v any) string {
 // extension and Apple answers from the description run. The runs are what
 // a hard limit falls back to, so they must be right where nothing fails.
 func TestIndependentRunsAgree(t *testing.T) {
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	files, err := filepath.Glob("testdata/corpus/*.testfile")
 	if err != nil {
 		t.Fatal(err)

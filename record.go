@@ -193,7 +193,7 @@ func cString(b []byte) string {
 
 // valueNeed is how many bytes a line's value slice must hold: a GUID, or
 // the longer of a numeric value and the string's vallen.
-func valueNeed(h *recordHead) int {
+func valueNeed(h *recordHead) int { // head
 	invariant.Check(h.vallen <= maxString, "value length within MAXstring")
 	if h.typ == tGUID || h.typ == tLeGUID || h.typ == tBeGUID {
 		return valueMin
@@ -224,7 +224,7 @@ type arena struct {
 const arenaChunk = 256 * 1024
 
 // take returns a zeroed slice of n bytes.
-func (a *arena) take(n int) []byte {
+func (a *arena) take(n int) []byte { // size
 	invariant.Check(n >= 0, "size non-negative")
 	if len(a.chunk) < n {
 		size := arenaChunk
@@ -239,7 +239,7 @@ func (a *arena) take(n int) []byte {
 }
 
 // copyIn returns a slice of at least need bytes holding b, zero padded.
-func (a *arena) copyIn(b []byte, need int) []byte {
+func (a *arena) copyIn(b []byte, need int) []byte { // src
 	invariant.Check(need >= 0, "need non-negative")
 	if need < len(b) {
 		need = len(b)
@@ -251,7 +251,7 @@ func (a *arena) copyIn(b []byte, need int) []byte {
 
 // intern converts a built line into a record whose byte fields live in
 // the arena.
-func (r *lineRec) intern(a *arena) record {
+func (r *lineRec) intern(a *arena) record { // arena
 	invariant.Check(r.vallen <= maxString, "value length within MAXstring")
 	need := valueNeed(&r.recordHead)
 	invariant.Check(need >= 8 && need <= maxString, "value need within the array")
@@ -269,7 +269,7 @@ func (r *lineRec) intern(a *arena) record {
 // image with lineno zeroed: exactly what apprentice_sort hands to memcmp.
 func (r *lineRec) image(out *[recordSize]byte) {
 	invariant.Check(r.vallen <= maxString, "value length within MAXstring")
-	le := binary.LittleEndian
+	le := binary.LittleEndian // littleEndian
 	le.PutUint16(out[0:2], r.flag)
 	out[2] = r.contLevel
 	out[3] = r.factor

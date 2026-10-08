@@ -38,7 +38,7 @@ func eatSpace(s []byte, i int) int {
 }
 
 // hexToInt is apprentice.c's hextoint: -1 when c is not a hex digit.
-func hexToInt(c byte) int {
+func hexToInt(c byte) int { // hexChar
 	switch {
 	case cIsDigit(c):
 		return int(c - '0')
@@ -67,7 +67,7 @@ func digitValue(c byte, base uint64) (uint64, bool) {
 // index after the last digit and whether any digit was consumed. Overflow
 // of the magnitude reports ok=false, which the callers treat as a parse
 // error (the reference leaves the cursor in place on ERANGE).
-func unsignedNumber(s []byte, i int, base uint64) (mag uint64, neg bool, end int, ok bool) {
+func unsignedNumber(s []byte, i int, base uint64) (mag uint64, neg bool, end int, ok bool) { // text
 	invariant.Check(base == 0 || base == 8 || base == 10 || base == 16, "supported base")
 	i = eatSpace(s, i)
 	if i < len(s) && (s[i] == '+' || s[i] == '-') {
@@ -98,7 +98,7 @@ func isDigitIn(c byte, base uint64) bool {
 
 // detectBase is strtol's base-0 rule: 0x prefix is hex, a leading 0 is
 // octal, else decimal. It returns the base and the index after any prefix.
-func detectBase(s []byte, i int) (uint64, int) {
+func detectBase(s []byte, i int) (uint64, int) { // cursor
 	if i < len(s)-1 && s[i] == '0' && (s[i+1] == 'x' || s[i+1] == 'X') && hexToInt(at(s, i+2)) >= 0 {
 		return 16, i + 2
 	}
@@ -153,7 +153,7 @@ func strtol(s []byte, i int, base uint64) (v int64, end int, ok bool) {
 }
 
 // eatSize is apprentice.c's eatsize: skip a C integer suffix such as UL.
-func eatSize(s []byte, i int) int {
+func eatSize(s []byte, i int) int { // cursor
 	invariant.Check(i >= 0, "cursor non-negative")
 	invariant.Check(i <= len(s), "cursor within the text")
 	if lower(at(s, i)) == 'u' {

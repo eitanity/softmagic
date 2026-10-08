@@ -15,7 +15,7 @@ import (
 // TestMatchesEmbedded checks that compiling the vendored Magdir through
 // this package gives the embedded database: same hash, same listing.
 func TestMatchesEmbedded(t *testing.T) {
-	db, err := compile.Compile(os.DirFS("../magic/Magdir"), softmagic.CompileOptions{})
+	db, err := compile.Compile(os.DirFS("../magic/Magdir"), softmagic.CompileOptions{}) // database
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := compile.Append(base, extra)
+	db, err := compile.Append(base, extra) // database
 	if err != nil {
 		t.Fatal(err)
 	}

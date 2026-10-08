@@ -17,7 +17,7 @@ func TestGenerateDatabase(t *testing.T) {
 	if os.Getenv("SOFTMAGIC_GENERATE") == "" {
 		t.Skip("set SOFTMAGIC_GENERATE=1 to regenerate magic/softmagic.db")
 	}
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	data, err := db.Marshal()
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestListOracleEmbedded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := Default()
+	db, err := Default() // database
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestListOracleEmbedded(t *testing.T) {
 
 // TestLoadRoundTrip: Marshal then Load reproduces every record.
 func TestLoadRoundTrip(t *testing.T) {
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	data, err := db.Marshal()
 	if err != nil {
 		t.Fatal(err)
@@ -182,7 +182,7 @@ func TestLoadRefusesHugeCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The file count follows the magic, version and three strings.
-	i := len(formatMagic) + 2
+	i := len(formatMagic) + 2 // byteOffset
 	for k := 0; k < 3; k++ {
 		n := int(raw[i]) | int(raw[i+1])<<8
 		i += 2 + n

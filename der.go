@@ -35,7 +35,7 @@ func derTagName(tag uint32) string {
 }
 
 // derTag is gettag: the tag number at c[p], advancing p.
-func derTag(c []byte, p *int) uint32 {
+func derTag(c []byte, p *int) uint32 { // content
 	invariant.Check(*p >= 0, "cursor non-negative")
 	if *p >= len(c) {
 		return derBad
@@ -48,7 +48,7 @@ func derTag(c []byte, p *int) uint32 {
 	if *p >= len(c) {
 		return derBad
 	}
-	i := *p
+	i := *p // cursor
 	for ; i < len(c) && c[i] >= 0x80; i++ {
 		tag = tag*128 + uint32(c[i]) - 0x80
 		if i+1 >= len(c) {
@@ -61,9 +61,9 @@ func derTag(c []byte, p *int) uint32 {
 }
 
 // derLength is getlength: the element length at c[p], advancing p.
-func derLength(c []byte, p *int) uint32 {
+func derLength(c []byte, p *int) uint32 { // content
 	invariant.Check(*p >= 0, "cursor non-negative")
-	l := len(c)
+	l := len(c) // contentLength
 	if *p >= l {
 		return derBad
 	}
@@ -76,7 +76,7 @@ func derLength(c []byte, p *int) uint32 {
 	if oneByte {
 		return uint32(digits)
 	}
-	n := uint64(0)
+	n := uint64(0) // length
 	for i := 0; i < digits; i++ {
 		n = n<<8 | uint64(c[*p])
 		*p++
@@ -89,7 +89,7 @@ func derLength(c []byte, p *int) uint32 {
 
 // derData is der_data: the element's value as the rule compares it, into
 // buf (128 bytes as the reference's).
-func derData(buf []byte, tag uint32, d []byte) []byte {
+func derData(buf []byte, tag uint32, d []byte) []byte { // elementValue
 	invariant.Check(len(buf) == maxString, "der buffer is MAXstring")
 	switch tag {
 	case 0x13, 0x0c, 0x16: // printable, utf8, ia5 strings: %.*s
@@ -113,13 +113,13 @@ func derData(buf []byte, tag uint32, d []byte) []byte {
 
 // derOffs is der_offs: the offset of the element's value, with the parent
 // level's continuation offset moved past the element so siblings follow.
-func (s *scan) derOffs(m *record, f *frame) (int32, bool) {
+func (s *scan) derOffs(m *record, f *frame) (int32, bool) { // frame
 	invariant.Check(s.search.valid, "der region set")
-	b := s.buf[s.search.start : s.search.start+s.search.length]
+	b := s.buf[s.search.start : s.search.start+s.search.length] // searchRegion
 	if s.search.length == 0 {
 		b = s.buf[s.search.start:]
 	}
-	p := 0
+	p := 0 // cursor
 	if derTag(b, &p) == derBad {
 		return 0, false
 	}
@@ -138,13 +138,13 @@ func (s *scan) derOffs(m *record, f *frame) (int32, bool) {
 }
 
 // derCmp is der_cmp: match the element against the rule's "tag[len][=data]".
-func (s *scan) derCmp(m *record) bool {
+func (s *scan) derCmp(m *record) bool { // rule
 	invariant.Check(m.typ == tDer, "der line")
 	if !s.search.valid {
 		return false
 	}
-	b := s.buf[s.search.start : s.search.start+s.search.length]
-	p := 0
+	b := s.buf[s.search.start : s.search.start+s.search.length] // searchRegion
+	p := 0                                                      // cursor
 	tag := derTag(b, &p)
 	if tag == derBad {
 		return false

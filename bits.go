@@ -23,7 +23,7 @@ func low8(v uint64) uint8 { return uint8(v & 0xff) }
 // wrapInt32 is C's (int32_t) cast of a 64-bit value: the low 32 bits
 // reinterpreted as two's complement.
 func wrapInt32(v int64) int32 {
-	w := v & 0xffffffff
+	w := v & 0xffffffff // low32
 	if w >= 1<<31 {
 		w -= 1 << 32
 	}

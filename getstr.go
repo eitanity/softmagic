@@ -14,7 +14,7 @@ import "github.com/eitanity/softmagic/internal/invariant"
 // are not reproduced; its one error, a value longer than MAXstring-1, is.
 func (p *lineParser) getStr() error {
 	invariant.Check(p.i <= len(p.line), "cursor within the line")
-	s, i, n := p.line, p.i, 0
+	s, i, n := p.line, p.i, 0 // valueLength
 	var next int
 	for ; i < len(s) && !cIsSpace(s[i]); i = next {
 		if !invariant.Check(n <= maxString, "value fits MAXstring") || n >= maxString-1 {
@@ -51,9 +51,9 @@ func (p *lineParser) getStr() error {
 
 // decodeEscape decodes the escape whose first byte after the backslash is at
 // s[i]; it returns the byte and the index after the escape.
-func decodeEscape(s []byte, i int) (byte, int) {
+func decodeEscape(s []byte, i int) (byte, int) { // line
 	invariant.Check(i > 0 && i < len(s), "escape has a character")
-	c := s[i]
+	c := s[i] // escapeChar
 	i++
 	switch c {
 	case 'a':
@@ -81,7 +81,7 @@ func decodeEscape(s []byte, i int) (byte, int) {
 }
 
 // decodeOctal reads up to two more octal digits after the first.
-func decodeOctal(s []byte, i, val int) (byte, int) {
+func decodeOctal(s []byte, i, val int) (byte, int) { // position
 	invariant.Check(i > 0 && i <= len(s), "after the first digit")
 	invariant.Check(val >= 0 && val <= 7, "first octal digit")
 	for k := 0; k < 2; k++ {
@@ -96,12 +96,12 @@ func decodeOctal(s []byte, i, val int) (byte, int) {
 }
 
 // decodeHex reads up to two hex digits; with none the result is a literal 'x'.
-func decodeHex(s []byte, i int) (byte, int) {
+func decodeHex(s []byte, i int) (byte, int) { // position
 	invariant.Check(i > 0, "after the escape character")
 	invariant.Check(i <= len(s), "cursor within the value")
 	val := int('x')
 	for k := 0; k < 2; k++ {
-		d := hexToInt(at(s, i))
+		d := hexToInt(at(s, i)) // hexDigit
 		if d < 0 {
 			break
 		}

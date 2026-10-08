@@ -51,7 +51,7 @@ func loadModule(t *testing.T) (*token.FileSet, []*pkg) {
 	sort.SliceStable(pkgs, func(i, j int) bool { return len(pkgs[i].path) > len(pkgs[j].path) })
 	done := map[string]*types.Package{}
 	imp := &moduleImporter{done: done, src: importer.ForCompiler(fset, "source", nil)}
-	for _, p := range pkgs {
+	for _, p := range pkgs { // pkg
 		conf := types.Config{Importer: imp}
 		p.info = &types.Info{Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}}
 		tp, err := conf.Check(p.path, fset, p.files, p.info)
@@ -98,7 +98,7 @@ func packageDirs(t *testing.T, root string) []string {
 	t.Helper()
 	seen := map[string]bool{}
 	var dirs []string
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error { // dirEntry
 		if walkErr != nil {
 			return walkErr
 		}
@@ -130,7 +130,7 @@ func parseDir(t *testing.T, fset *token.FileSet, ctx *build.Context, root, dir s
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &pkg{path: modulePath, dir: dir}
+	p := &pkg{path: modulePath, dir: dir} // pkg
 	if rel != "." {
 		p.path = modulePath + "/" + filepath.ToSlash(rel)
 	}
@@ -165,10 +165,10 @@ func funcKey(obj *types.Func) string { return obj.FullName() }
 // callGraph maps each module function to the module functions it calls.
 func callGraph(pkgs []*pkg) map[string][]string {
 	graph := map[string][]string{}
-	for _, p := range pkgs {
+	for _, p := range pkgs { // pkg
 		for _, f := range p.files {
 			for _, d := range f.Decls {
-				fd, ok := d.(*ast.FuncDecl)
+				fd, ok := d.(*ast.FuncDecl) // funcDecl
 				if !ok || fd.Body == nil {
 					continue
 				}
@@ -184,14 +184,14 @@ func callGraph(pkgs []*pkg) map[string][]string {
 }
 
 // calleesOf lists the module functions called in body.
-func calleesOf(p *pkg, body *ast.BlockStmt) []string {
+func calleesOf(p *pkg, body *ast.BlockStmt) []string { // pkg
 	var out []string
 	ast.Inspect(body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
+		call, ok := n.(*ast.CallExpr) // isCall
 		if !ok {
 			return true
 		}
-		var id *ast.Ident
+		var id *ast.Ident // calleeIdent
 		switch fn := call.Fun.(type) {
 		case *ast.Ident:
 			id = fn
@@ -230,7 +230,7 @@ func TestRule1NoRecursion(t *testing.T) {
 		}
 	}
 	for len(queue) > 0 {
-		fn := queue[0]
+		fn := queue[0] // fnName
 		queue = queue[1:]
 		for _, c := range graph[fn] {
 			indeg[c]--
@@ -254,11 +254,11 @@ func TestRule1NoRecursion(t *testing.T) {
 
 // reaches reports whether `to` is reachable from `from` in one or more
 // steps, by iterative breadth-first search.
-func reaches(graph map[string][]string, from, to string) bool {
+func reaches(graph map[string][]string, from, to string) bool { // target
 	seen := map[string]bool{}
 	queue := append([]string(nil), graph[from]...)
 	for len(queue) > 0 {
-		fn := queue[0]
+		fn := queue[0] // fnName
 		queue = queue[1:]
 		if fn == to {
 			return true
@@ -276,10 +276,10 @@ func reaches(graph map[string][]string, from, to string) bool {
 // code, and panic outside the assertion helper.
 func TestRule1NoGotoDeferRecover(t *testing.T) {
 	fset, pkgs := loadModule(t)
-	for _, p := range pkgs {
-		for i, f := range p.files {
+	for _, p := range pkgs { // pkg
+		for i, f := range p.files { // fileIdx
 			ast.Inspect(f, func(n ast.Node) bool {
-				switch x := n.(type) {
+				switch x := n.(type) { // node
 				case *ast.BranchStmt:
 					if x.Tok == token.GOTO {
 						t.Errorf("rule 1: goto at %s", fset.Position(x.Pos()))
@@ -319,7 +319,7 @@ func TestRule2LoopForms(t *testing.T) {
 }
 
 // loopForm returns "" when fs is an accepted three-clause loop.
-func loopForm(fs *ast.ForStmt) string {
+func loopForm(fs *ast.ForStmt) string { // forStmt
 	if fs.Cond == nil {
 		return "loop without condition"
 	}
@@ -355,7 +355,7 @@ func loopForm(fs *ast.ForStmt) string {
 }
 
 func stepsCounter(post ast.Stmt, counter string) bool {
-	switch s := post.(type) {
+	switch s := post.(type) { // stmt
 	case *ast.IncDecStmt:
 		return types.ExprString(s.X) == counter
 	case *ast.AssignStmt:
@@ -392,7 +392,7 @@ func TestRule5AssertionDensity(t *testing.T) {
 		}
 		for _, f := range p.files {
 			for _, d := range f.Decls {
-				fd, ok := d.(*ast.FuncDecl)
+				fd, ok := d.(*ast.FuncDecl) // funcDecl
 				if !ok || fd.Body == nil || len(fd.Body.List) < 3 {
 					continue
 				}
@@ -416,7 +416,7 @@ func TestRule5AssertionDensity(t *testing.T) {
 // checksIn counts invariant.Check calls anywhere in body and guard clauses
 // at its top level.
 func checksIn(body *ast.BlockStmt) int {
-	n := 0
+	n := 0 // checkCount
 	ast.Inspect(body, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
@@ -449,11 +449,11 @@ func endsInReturn(b *ast.BlockStmt) bool {
 // package-level variable outside its declaration.
 func TestRule6NoMutableGlobals(t *testing.T) {
 	fset, pkgs := loadModule(t)
-	for _, p := range pkgs {
+	for _, p := range pkgs { // pkg
 		globals := map[types.Object]bool{}
 		for _, f := range p.files {
 			for _, d := range f.Decls {
-				switch x := d.(type) {
+				switch x := d.(type) { // decl
 				case *ast.FuncDecl:
 					if x.Name.Name == "init" && x.Recv == nil {
 						t.Errorf("rule 6: init at %s", fset.Position(x.Pos()))
@@ -475,7 +475,7 @@ func TestRule6NoMutableGlobals(t *testing.T) {
 		}
 		for _, f := range p.files {
 			ast.Inspect(f, func(n ast.Node) bool {
-				switch x := n.(type) {
+				switch x := n.(type) { // node
 				case *ast.AssignStmt:
 					for _, l := range x.Lhs {
 						if refersToGlobal(p, l, globals) {
@@ -498,9 +498,9 @@ func TestRule6NoMutableGlobals(t *testing.T) {
 }
 
 // refersToGlobal reports whether e's root identifier is a package-level var.
-func refersToGlobal(p *pkg, e ast.Expr, globals map[types.Object]bool) bool {
+func refersToGlobal(p *pkg, e ast.Expr, globals map[types.Object]bool) bool { // expr
 	for {
-		switch x := e.(type) {
+		switch x := e.(type) { // node
 		case *ast.Ident:
 			return globals[p.info.Uses[x]]
 		case *ast.IndexExpr:
@@ -522,9 +522,9 @@ func refersToGlobal(p *pkg, e ast.Expr, globals map[types.Object]bool) bool {
 func TestRule8BuildTagsAndImports(t *testing.T) {
 	fset, pkgs := loadModule(t)
 	for _, p := range pkgs {
-		for _, f := range p.files {
+		for _, f := range p.files { // file
 			for _, cg := range f.Comments {
-				for _, c := range cg.List {
+				for _, c := range cg.List { // comment
 					if strings.HasPrefix(c.Text, "//go:build") {
 						tag := strings.TrimSpace(strings.TrimPrefix(c.Text, "//go:build"))
 						if tag != "softmagic_assert" && tag != "!softmagic_assert" {
@@ -552,11 +552,11 @@ func TestRule8BuildTagsAndImports(t *testing.T) {
 // sync.Pool literal or the argument of a Do call.
 func TestRule9PointersAndFuncs(t *testing.T) {
 	fset, pkgs := loadModule(t)
-	for _, p := range pkgs {
+	for _, p := range pkgs { // pkg
 		for _, f := range p.files {
 			allowed := allowedFuncLits(f)
 			ast.Inspect(f, func(n ast.Node) bool {
-				switch x := n.(type) {
+				switch x := n.(type) { // node
 				case *ast.StarExpr:
 					switch y := x.X.(type) {
 					case *ast.StarExpr, *ast.MapType, *ast.InterfaceType, *ast.FuncType:
@@ -587,9 +587,9 @@ func TestRule9PointersAndFuncs(t *testing.T) {
 // allowedFuncLits collects the FuncType nodes that are a FuncDecl's own
 // signature or a permitted func literal.
 func allowedFuncLits(f *ast.File) map[*ast.FuncType]bool {
-	ok := map[*ast.FuncType]bool{}
+	ok := map[*ast.FuncType]bool{} // allowed
 	ast.Inspect(f, func(n ast.Node) bool {
-		switch x := n.(type) {
+		switch x := n.(type) { // node
 		case *ast.FuncDecl:
 			ok[x.Type] = true
 		case *ast.KeyValueExpr:
@@ -623,7 +623,7 @@ func TestRule10NoSuppressions(t *testing.T) {
 			t.Error(closeErr)
 		}
 	})
-	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error { // dirEntry
 		if walkErr != nil {
 			return walkErr
 		}

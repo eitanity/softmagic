@@ -75,7 +75,7 @@ func (s *scan) window(f *frame) []byte { return s.buf[f.base : f.base+f.n] }
 
 // pushFrame starts a child match. It reports false when the depth cap is
 // reached, which is recorded as Truncated "recursion".
-func (s *scan) pushFrame(fr *frame) bool {
+func (s *scan) pushFrame(fr *frame) bool { // childFrame
 	invariant.Check(fr.n >= 0 && fr.base >= 0 && fr.base+fr.n <= len(s.buf), "child window within the buffer")
 	invariant.Check(fr.count >= 0 && int(fr.first)+int(fr.count) <= len(s.db.recs), "child lines within the database")
 	if s.nframes >= s.maxDepth {
@@ -95,7 +95,7 @@ func (s *scan) run() bool {
 	invariant.Check(s.nframes == 1, "run starts with the root frame")
 	rootResult := false
 	for steps := 0; steps < maxSteps && s.nframes > 0 && s.truncated != TruncTime && s.abort == ""; steps++ {
-		f := &s.frames[s.nframes-1]
+		f := &s.frames[s.nframes-1] // frame
 		if f.idx >= f.count {
 			if s.cont && f.phase == phaseCont && !f.ended {
 				s.contEntryDone(f) // the last entry ran to the end of the lines
@@ -123,8 +123,8 @@ func (s *scan) run() bool {
 func (s *scan) popFrame() bool {
 	invariant.Check(s.nframes > 0, "pop with a frame")
 	invariant.Check(s.frames[s.nframes-1].idx >= s.frames[s.nframes-1].count, "popped frame is complete")
-	f := &s.frames[s.nframes-1]
-	rv := f.returnval
+	f := &s.frames[s.nframes-1] // frame
+	rv := f.returnval           // returnVal
 	s.nframes--
 	if f.kind == kindRoot || s.nframes == 0 {
 		return rv
@@ -135,7 +135,7 @@ func (s *scan) popFrame() bool {
 		s.pushNextMap(f) // mget's indirect loop: the next map, until one answers
 		return rv
 	}
-	var r int
+	var r int // mgetResult
 	if f.kind == kindUse {
 		r = s.finishUse(parent, f, rv)
 	} else {
@@ -163,7 +163,7 @@ func (s *scan) pushNextMap(done *frame) {
 }
 
 // flush skips the rest of the current entry: the reference's `goto flush`.
-func (s *scan) flush(f *frame) {
+func (s *scan) flush(f *frame) { // frame
 	invariant.Check(f.idx < f.count, "flush from a line within the frame")
 	end := s.db.entryEnd[f.first+f.idx] - f.first
 	invariant.Check(end > f.idx && end <= f.count, "entry end within the frame")
@@ -174,7 +174,7 @@ func (s *scan) flush(f *frame) {
 
 // skipTop is the reference's first test in match(): entries of the other
 // class, and string tests marked for the other text/binary mode.
-func skipTop(m *record, mode uint16, text bool) bool {
+func skipTop(m *record, mode uint16, text bool) bool { // magicLine
 	invariant.Check(mode == flagBinTest || mode == flagTextTest, "mode is one class")
 	if m.typ == tName {
 		return false
@@ -190,10 +190,10 @@ func skipTop(m *record, mode uint16, text bool) bool {
 
 // stepTop evaluates the top-level line at f.idx up to its mget; a child
 // push suspends the frame and finishTop completes it later.
-func (s *scan) stepTop(f *frame) {
+func (s *scan) stepTop(f *frame) { // frame
 	invariant.Check(f.phase == phaseTop, "top-level step in the top phase")
 	invariant.Check(s.line(f, f.idx).contLevel == 0, "top-level line has level 0")
-	m := s.line(f, f.idx)
+	m := s.line(f, f.idx) // magicLine
 	pf := &s.db.pre[f.first+f.idx]
 	if pf.skip&skipBit(f.mode, f.text) != 0 || s.timeUp() {
 		s.flush(f)
@@ -216,14 +216,14 @@ func (s *scan) stepTop(f *frame) {
 
 // finishTop is the rest of the top-level line's evaluation after mget
 // returned r (0 no match, 1 match, -1 the reference's fatal error).
-func (s *scan) finishTop(f *frame, r int) {
+func (s *scan) finishTop(f *frame, r int) { // mgetResult
 	invariant.Check(r >= -1 && r <= 1, "mget result in range")
-	m := s.line(f, f.idx)
+	m := s.line(f, f.idx) // magicLine
 	if r < 0 {
 		s.flush(f)
 		return
 	}
-	flush := false
+	var flush bool
 	if r == 0 {
 		flush = m.reln != '!'
 	} else {
@@ -261,7 +261,7 @@ func (s *scan) finishTop(f *frame, r int) {
 }
 
 // endFrame makes the frame complete with the given result.
-func (s *scan) endFrame(f *frame, rv bool) {
+func (s *scan) endFrame(f *frame, rv bool) { // frame
 	invariant.Check(f.idx <= f.count, "frame index within bounds")
 	f.foundMatch = true
 	s.needSeparator, s.printedSomething = true, true
@@ -274,10 +274,10 @@ func (s *scan) endFrame(f *frame, rv bool) {
 }
 
 // stepCont evaluates the continuation line at f.idx up to its mget.
-func (s *scan) stepCont(f *frame) {
+func (s *scan) stepCont(f *frame) { // frame
 	invariant.Check(f.phase == phaseCont, "continuation step in the continuation phase")
 	invariant.Check(f.contLevel >= 0 && int(f.contLevel) < maxLevels, "continuation level within bounds")
-	m := s.line(f, f.idx)
+	m := s.line(f, f.idx) // magicLine
 	if m.contLevel == 0 {
 		s.entryEnd(f)
 		return
@@ -311,7 +311,7 @@ func (s *scan) stepCont(f *frame) {
 
 // entryEnd is reached when the entry's continuation lines are exhausted:
 // a found match ends the frame, otherwise the next entry is tried.
-func (s *scan) entryEnd(f *frame) {
+func (s *scan) entryEnd(f *frame) { // frame
 	invariant.Check(f.idx <= f.count, "frame index within bounds")
 	if s.cont {
 		s.contEntryDone(f) // under MAGIC_CONTINUE the next entry is tried regardless
@@ -327,7 +327,7 @@ func (s *scan) entryEnd(f *frame) {
 // contEntryDone is the end of the reference's entry loop under
 // MAGIC_CONTINUE: an entry that printed makes later answers need a
 // separator, and after a match the printing state starts again.
-func (s *scan) contEntryDone(f *frame) {
+func (s *scan) contEntryDone(f *frame) { // frame
 	invariant.Check(s.cont, "continue run")
 	invariant.Check(f.idx <= f.count, "frame index within bounds")
 	if s.printedSomething {
@@ -339,14 +339,14 @@ func (s *scan) contEntryDone(f *frame) {
 }
 
 // finishCont is the rest of a continuation line's evaluation after mget.
-func (s *scan) finishCont(f *frame, r int) {
+func (s *scan) finishCont(f *frame, r int) { // mgetResult
 	invariant.Check(r >= -1 && r <= 1, "mget result in range")
-	m := s.line(f, f.idx)
+	m := s.line(f, f.idx) // magicLine
 	if r < 0 {
 		f.idx++
 		return
 	}
-	matched := false
+	var matched bool
 	switch {
 	case r == 0 && m.reln != '!':
 		f.idx++
@@ -367,9 +367,9 @@ func (s *scan) finishCont(f *frame, r int) {
 
 // contMatched handles a matched continuation line: the default/clear
 // bookkeeping, annotation, printing and the next level's offset.
-func (s *scan) contMatched(f *frame, m *record) {
+func (s *scan) contMatched(f *frame, m *record) { // magicLine
 	invariant.Check(m.contLevel != 0, "continuation line")
-	cl := f.contLevel
+	cl := f.contLevel // contLevel
 	if !invariant.Check(cl >= 0 && int(cl) < maxLevels, "continuation level within bounds") {
 		s.truncate(TruncInvariant)
 		return
@@ -406,7 +406,7 @@ func (s *scan) contMatched(f *frame, m *record) {
 // printCont prints a matched continuation line's description: a blank
 // before it when the previous item printed, and under MAGIC_CONTINUE a
 // separator when it is the first text since an answer ended.
-func (s *scan) printCont(f *frame, m *record) {
+func (s *scan) printCont(f *frame, m *record) { // frame
 	invariant.Check(s.mode == modeDesc, "continuations print in description mode")
 	invariant.Check(m.contLevel != 0, "continuation line")
 	f.returnval = true
@@ -424,7 +424,7 @@ func (s *scan) printCont(f *frame, m *record) {
 // annotate is handle_annotation for the MIME and extension modes: the
 // first annotated line on the path ends the match. In description mode the
 // annotations are only recorded.
-func (s *scan) annotate(m *record, f *frame) bool {
+func (s *scan) annotate(m *record, f *frame) bool { // magicLine
 	invariant.Check(f.idx >= 0 && f.idx < f.count, "annotating a line within the frame")
 	rec := f.first + f.idx
 	if m.hasMime() && s.mimeRec < 0 {

@@ -25,7 +25,7 @@ func TestMain(m *testing.M) {
 
 // compileFS is the compile package's Compile for tests inside this
 // package, which cannot import it: the same listing, reading and hashing.
-func compileFS(fsys fs.FS, o CompileOptions) (*Database, error) {
+func compileFS(fsys fs.FS, o CompileOptions) (*Database, error) { // compileOpts
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return nil, err
@@ -39,7 +39,7 @@ func compileFS(fsys fs.FS, o CompileOptions) (*Database, error) {
 	}
 	sort.Strings(names)
 	srcs := make([]Source, 0, len(names))
-	h := sha256.New()
+	h := sha256.New() // hasher
 	for _, name := range names {
 		data, err := fs.ReadFile(fsys, name)
 		if err != nil {

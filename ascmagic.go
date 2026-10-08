@@ -30,10 +30,10 @@ func trimNuls(buf []byte) int {
 // text rules over its UTF-8 re-encoding, and describe the text. It
 // returns whether anything was printed. looksText is the classification
 // of the untrimmed window, passed to the matcher as the reference does.
-func (s *scan) textPhase(looksText bool, e encoding) bool {
+func (s *scan) textPhase(looksText bool, e encoding) bool { // encoding
 	invariant.Check(s.savedBuf == nil, "text phase starts on the input window")
 	invariant.Check(e.n <= len(s.buf), "classified length within the input")
-	n := trimNuls(s.buf)
+	n := trimNuls(s.buf) // textLength
 	if n&1 != 0 && len(s.buf)&1 == 0 {
 		n++ // keep the last UTF-16 unit whole
 	}
@@ -84,7 +84,7 @@ func (s *scan) encodeWindow(win []byte, e encoding) int {
 	invariant.Check(e.n <= len(win), "classified length within the window")
 	d := newTextDecoder(win, e)
 	dst := s.utf8Scratch(6 * e.n)
-	n := 0
+	n := 0                                      // encodedLength
 	for chars := 0; chars < len(win); chars++ { // a character takes at least one byte
 		c, ok := d.next()
 		if !ok {
@@ -103,11 +103,11 @@ func (s *scan) encodeWindow(win []byte, e encoding) int {
 // characters.
 func scanLines(win []byte, e encoding) textStats {
 	invariant.Check(e.n <= len(win), "classified length within the window")
-	var st textStats
+	var st textStats // textStats
 	d := newTextDecoder(win, e)
 	seenCR := false
 	lastLineEnd := int64(-1)
-	for i := int64(0); i < int64(len(win)); i++ { // a character takes at least one byte
+	for i := int64(0); i < int64(len(win)); i++ { // charIndex; a character takes at least one byte
 		c, ok := d.next()
 		if !ok {
 			break
@@ -125,7 +125,7 @@ func scanLines(win []byte, e encoding) textStats {
 
 // noteChar counts one character's terminator and control-character
 // contribution and returns whether it was a CR.
-func (st *textStats) noteChar(c uint32, i int64, seenCR bool, lastLineEnd *int64) bool {
+func (st *textStats) noteChar(c uint32, i int64, seenCR bool, lastLineEnd *int64) bool { // char
 	invariant.Check(i >= 0, "character index non-negative")
 	switch {
 	case c == '\n':
@@ -154,7 +154,7 @@ func (st *textStats) noteChar(c uint32, i int64, seenCR bool, lastLineEnd *int64
 
 // describeText prints the encoding, the text type and the line details,
 // after rewriting a rule description that ended in " text".
-func (s *scan) describeText(e encoding, st textStats) {
+func (s *scan) describeText(e encoding, st textStats) { // encoding
 	invariant.Check(s.outLen <= maxOutput, "output length within cap")
 	invariant.Check(e.isText(), "describing text")
 	executable := false
@@ -198,7 +198,7 @@ func (s *scan) replaceSuffix(suffix, rep string) bool {
 }
 
 // describeTerminators reports line terminators other than LF, or none.
-func (s *scan) describeTerminators(st textStats) {
+func (s *scan) describeTerminators(st textStats) { // textStats
 	invariant.Check(st.crlf >= 0 && st.cr >= 0 && st.lf >= 0 && st.nel >= 0, "counts non-negative")
 	none := st.crlf == 0 && st.cr == 0 && st.nel == 0 && st.lf == 0
 	if !none && st.crlf == 0 && st.cr == 0 && st.nel == 0 {

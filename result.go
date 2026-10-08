@@ -64,7 +64,8 @@ type Continued struct {
 	Extensions []string
 	// Apple is file -b -k --apple.
 	Apple []string
-	// Failures are the continue runs that a hard limit stopped.
+	// Failures are the continue runs that a hard limit stopped; a mode
+	// that failed has no list.
 	Failures Failures
 }
 

@@ -110,7 +110,7 @@ func TestMaxBytes(t *testing.T) {
 // TestIdentifyPrefix: a complete signature at offset 0 is final; a prefix
 // that cuts a test short says NeedMore.
 func TestIdentifyPrefix(t *testing.T) {
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	pdf := []byte("%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
 	r := db.IdentifyPrefix(context.Background(), pdf, Options{})
 	if r.Examined.Complete {
@@ -132,8 +132,8 @@ func TestIdentifyPrefix(t *testing.T) {
 // TestResultContract checks the Result contract: no blank answers, the database hash and
 // release on every result.
 func TestResultContract(t *testing.T) {
-	db := compileMagdir(t)
-	for _, in := range [][]byte{nil, []byte("x"), []byte("hello\n"), {0, 1, 2}} {
+	db := compileMagdir(t)                                                        // database
+	for _, in := range [][]byte{nil, []byte("x"), []byte("hello\n"), {0, 1, 2}} { // input
 		r := db.Identify(in)
 		if r.Description == "" || r.MIME == "" || r.Charset == "" {
 			t.Errorf("blank field for %q: %+v", in, r)
@@ -155,7 +155,7 @@ func TestCompileErrors(t *testing.T) {
 		"0 use nothere\n",
 		"0 long 1 %s wrong format\n",
 	}
-	for _, c := range cases {
+	for _, c := range cases { // ruleText
 		_, err := compileFS(fstest.MapFS{"f": &fstest.MapFile{Data: []byte(c)}}, CompileOptions{})
 		var ce *CompileError
 		if !errors.As(err, &ce) {
@@ -171,7 +171,7 @@ func TestCompileErrors(t *testing.T) {
 // TestAllocations checks that the identify core allocates only
 // what the Result carries.
 func TestAllocations(t *testing.T) {
-	db := compileMagdir(t)
+	db := compileMagdir(t) // database
 	data, err := os.ReadFile("testdata/corpus/zstd-v0.2-FF.testfile")
 	if err != nil {
 		t.Skip(err)
