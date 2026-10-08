@@ -45,10 +45,14 @@ type frame struct {
 	// State saved at push and restored at pop.
 	savedLevels  [maxLevels]levelInfo // use: the parent's levels
 	savedNeedSep bool                 // use
-	savedOffset  uint32               // use: ms->offset
-	savedEoffset int32                // use
-	savedOutLen  int                  // indirect: output length at push
-	childOffset  uint32               // indirect: the offset printed with the description
+	// ended is set when the frame completed early (the reference's return
+	// from inside match), not by running out of lines.
+	ended        bool
+	savedOffset  uint32 // use: ms->offset
+	savedEoffset int32  // use
+	savedOutLen  int    // indirect: output length at push
+	savedNseps   int    // indirect: separator count at push
+	childOffset  uint32 // indirect: the offset printed with the description
 }
 
 // line returns the record at relative index i of the frame.
@@ -89,6 +93,9 @@ func (s *scan) run() bool {
 	for steps := 0; steps < maxSteps && s.nframes > 0 && s.truncated != TruncTime; steps++ {
 		f := &s.frames[s.nframes-1]
 		if f.idx >= f.count {
+			if s.cont && f.phase == phaseCont && !f.ended {
+				s.contEntryDone(f) // the last entry ran to the end of the lines
+			}
 			rootResult = s.popFrame()
 			continue
 		}
@@ -230,6 +237,9 @@ func (s *scan) finishTop(f *frame, r int) {
 		f.foundMatch = true
 		if s.mode == modeDesc {
 			f.returnval, s.needSeparator, s.printedSomething = true, true, true
+			if s.cont && !s.firstline {
+				s.writeSep() // print_sep: another entry already answered
+			}
 			s.mprint(m, f)
 		}
 	}
@@ -248,8 +258,12 @@ func (s *scan) endFrame(f *frame, rv bool) {
 	invariant.Check(f.idx <= f.count, "frame index within bounds")
 	f.foundMatch = true
 	s.needSeparator, s.printedSomething = true, true
+	if s.cont {
+		s.firstline = false
+	}
 	f.returnval = rv
 	f.idx = f.count
+	f.ended = true
 }
 
 // stepCont evaluates the continuation line at f.idx up to its mget.
@@ -276,6 +290,7 @@ func (s *scan) stepCont(f *frame) {
 		if f.contLevel == 0 {
 			f.returnval = false
 			f.idx = f.count
+			f.ended = true
 			return
 		}
 		s.offset += bitsOfInt32(s.levels[f.contLevel-1].off)
@@ -291,12 +306,29 @@ func (s *scan) stepCont(f *frame) {
 // a found match ends the frame, otherwise the next entry is tried.
 func (s *scan) entryEnd(f *frame) {
 	invariant.Check(f.idx <= f.count, "frame index within bounds")
-	if f.foundMatch {
+	if s.cont {
+		s.contEntryDone(f) // under MAGIC_CONTINUE the next entry is tried regardless
+	} else if f.foundMatch {
 		f.idx = f.count
+		f.ended = true
 		return
 	}
 	f.contLevel = 0
 	f.phase = phaseTop
+}
+
+// contEntryDone is the end of the reference's entry loop under
+// MAGIC_CONTINUE: an entry that printed makes later answers need a
+// separator, and after a match the printing state starts again.
+func (s *scan) contEntryDone(f *frame) {
+	invariant.Check(s.cont, "continue run")
+	invariant.Check(f.idx <= f.count, "frame index within bounds")
+	if s.printedSomething {
+		s.firstline = false
+	}
+	if f.foundMatch {
+		s.printedSomething, s.firstline = false, false
+	}
 }
 
 // finishCont is the rest of a continuation line's evaluation after mget.
@@ -352,13 +384,7 @@ func (s *scan) contMatched(f *frame, m *record) {
 	if m.hasDesc() {
 		f.foundMatch = true
 		if s.mode == modeDesc {
-			f.returnval = true
-			s.printedSomething = true
-			if s.needSeparator && m.flag&flagNoSpace == 0 {
-				s.writeByte(' ')
-			}
-			s.mprint(m, f)
-			s.needSeparator = true
+			s.printCont(f, m)
 		}
 	}
 	if !s.moffset(m, f, &s.levels[cl].off) {
@@ -368,6 +394,24 @@ func (s *scan) contMatched(f *frame, m *record) {
 	if int(f.contLevel) < maxLevels {
 		s.levels[f.contLevel].gotMatch = false // file_check_mem(ms, ++cont_level)
 	}
+}
+
+// printCont prints a matched continuation line's description: a blank
+// before it when the previous item printed, and under MAGIC_CONTINUE a
+// separator when it is the first text since an answer ended.
+func (s *scan) printCont(f *frame, m *record) {
+	invariant.Check(s.mode == modeDesc, "continuations print in description mode")
+	invariant.Check(m.contLevel != 0, "continuation line")
+	f.returnval = true
+	if s.cont && !s.printedSomething && !s.firstline {
+		s.writeSep()
+	}
+	s.printedSomething = true
+	if s.needSeparator && m.flag&flagNoSpace == 0 {
+		s.writeByte(' ')
+	}
+	s.mprint(m, f)
+	s.needSeparator = true
 }
 
 // annotate is handle_annotation for the MIME and extension modes: the
@@ -385,14 +429,37 @@ func (s *scan) annotate(m *record, f *frame) bool {
 	if m.hasApple() && s.appleRec < 0 {
 		s.appleRec = rec
 	}
+	hit := false
 	switch s.mode {
 	case modeMime:
-		return m.hasMime()
+		hit = m.hasMime()
 	case modeExt:
-		return m.hasExt()
+		hit = m.hasExt()
 	case modeApple:
-		return m.hasApple()
+		hit = m.hasApple()
 	default:
-		return false
+	}
+	if hit && s.cont {
+		s.printAnnotation(rec)
+	}
+	return hit
+}
+
+// printAnnotation is handle_annotation's printing under MAGIC_CONTINUE: a
+// separator unless this is the first answer, then the annotation.
+func (s *scan) printAnnotation(rec int32) {
+	invariant.Check(s.cont, "annotations print only in continue runs")
+	invariant.Check(rec >= 0 && int(rec) < len(s.db.recs), "annotated record within the database")
+	if !s.firstline {
+		s.writeSep()
+	}
+	switch s.mode {
+	case modeMime:
+		s.writeString(varexpand(s.db.mimeOf(rec), s.execBit))
+	case modeExt:
+		s.writeString(s.db.extOf(rec))
+	case modeApple:
+		s.writeString(cString(s.db.recs[rec].apple)) // %.8s of an 8-byte field
+	default:
 	}
 }

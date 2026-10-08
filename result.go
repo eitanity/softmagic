@@ -26,11 +26,40 @@ type Result struct {
 	// the reference joins its stat-layer prefix to a text-phase
 	// description differently from the others.
 	Phase string
+	// Continued is set with Options.Continue: what `file -b -k` prints in
+	// each output mode, as lists.
+	Continued Continued
 	// Examined says what the call looked at and what stopped it.
 	Examined Examined
 	// Strength is the winning entry's computed strength (as file -l prints it), 0 when
 	// no entry matched.
 	Strength int
+}
+
+// Continued is a continue-mode answer (libmagic's MAGIC_CONTINUE, file -k).
+// The reference computes each output mode in a run of its own, and an
+// entry can answer in one mode and not another (a match with no MIME
+// annotation is a description and no MIME type), so element i of one list
+// is not about the same entry as element i of another. Each list is that
+// mode's output split where a separator was printed; joined with "\n- " it
+// is byte-identical to file -b -k in that mode. An element can be empty:
+// the reference prints a separator after a match that printed nothing in
+// that mode. All are nil without Options.Continue.
+type Continued struct {
+	// Descriptions is file -b -k.
+	Descriptions []string
+	// MIMEs is file -b -k --mime-type. file -b -k -i is MIMEs joined,
+	// then "; charset=" and Result.Charset.
+	MIMEs []string
+	// Encodings is file -b -k --mime-encoding: separators from the matches,
+	// which print nothing in that mode, then the charset in the last
+	// element.
+	Encodings []string
+	// Extensions is file -b -k --extension, each element as printed
+	// ("jpeg/jpg").
+	Extensions []string
+	// Apple is file -b -k --apple.
+	Apple []string
 }
 
 // Phases: which pass of file_buffer produced the description.

@@ -389,7 +389,7 @@ func (e *elfState) netbsdCore(n *elfNote) bool {
 	}
 	var pi [160]byte
 	copy(pi[:], n.desc)
-	name := printable(e.s.rxScratch(printableMax), pi[124:156], 31)
+	name := printable(e.s.rxScratch(printableMax), pi[124:156], 31, e.s.raw)
 	e.printf(", from '" + string(name) + "', pid=" + u10(uint64(e.u32(pi[80:84]))) +
 		", uid=" + u10(uint64(e.u32(pi[100:104]))) + ", gid=" + u10(uint64(e.u32(pi[112:116]))) +
 		", nlwps=" + u10(uint64(e.u32(pi[120:124]))) + ", lwp=" + u10(uint64(e.u32(pi[156:160]))) +

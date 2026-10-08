@@ -65,6 +65,13 @@ type Options struct {
 	// reference consults through ${x?a:b} in rule descriptions (file(1)
 	// sets it from stat; an ELF dynamic section overrides it).
 	Executable bool
+	// Continue is libmagic's MAGIC_CONTINUE (file -k): Result.Continued
+	// lists every match in each output mode. The other fields of the
+	// Result are what they are without it.
+	Continue bool
+	// Raw is libmagic's MAGIC_RAW (file -r): strings from the input are
+	// printed as they are, not with non-printable bytes as \ooo escapes.
+	Raw bool
 }
 
 // matchMode selects what a match run collects: a description, or the
@@ -77,7 +84,19 @@ const (
 	modeMime
 	modeExt
 	modeApple
+	// modeEnc is the reference's MAGIC_MIME_ENCODING alone: the rules
+	// match but print nothing, and no annotation ends a match. Only the
+	// continue runs use it; first-match answers derive the charset alone.
+	modeEnc
 )
+
+// sepText is the reference's FILE_SEPARATOR, written between the answers
+// of a continue run.
+const sepText = "\n- "
+
+// maxSeps bounds the separators one output can hold: each takes three of
+// its bytes.
+const maxSeps = maxOutput / len(sepText)
 
 // levelInfo is the reference's struct level_info.
 type levelInfo struct {
@@ -106,6 +125,7 @@ type scan struct {
 	search           searchState
 	indir            int
 	outLen           int
+	nseps            int // separators recorded in seps
 	timeCheck        int
 	maxRead          int
 	nframes          int
@@ -121,11 +141,16 @@ type scan struct {
 	extRec           int32
 	eoffset          int32
 	out              [maxOutput]byte
+	seps             [maxSeps]int32 // where each separator starts in out, ascending
 	value            [maxString]byte
 	printedSomething bool
 	needSeparator    bool
 	mode             matchMode
+	cont             bool // a continue run is in progress (MAGIC_CONTINUE)
+	wantCont         bool // Options.Continue
+	firstline        bool // the reference's firstline: nothing answered yet in this softmagic call
 	oobHit           bool
+	raw              bool  // Options.Raw
 	execBit          bool  // ms->mode & 0111: the caller's executable bit, then the ELF verdict
 	winID            uint8 // windowBin or windowText while a window is begun
 }
@@ -187,6 +212,8 @@ func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) {
 		s.maxDepth = maxFrames
 	}
 	s.execBit = o.Executable
+	s.raw = o.Raw
+	s.cont, s.wantCont, s.firstline, s.nseps = false, o.Continue, true, 0
 	s.src, s.srcSize = nil, 0
 	s.gen++
 	if s.gen == 0 {
@@ -328,6 +355,36 @@ func (s *scan) writeByte(c byte) {
 
 // output is the text printed so far.
 func (s *scan) output() []byte { return s.out[:s.outLen] }
+
+// writeSep is file_separator: the separator between two answers of a
+// continue run, with its position recorded so the answers can be told
+// apart without searching the text for it.
+func (s *scan) writeSep() {
+	invariant.Check(s.cont, "separators only in continue runs")
+	invariant.Check(s.nseps <= maxSeps, "separator count within cap")
+	if s.nseps == maxSeps || s.outLen+len(sepText) > maxOutput {
+		s.truncate(TruncOutput)
+		return
+	}
+	s.seps[s.nseps] = smallInt32(s.outLen)
+	s.nseps++
+	s.writeString(sepText)
+}
+
+// trimSep is trim_separator: drop a separator that ends the output. The
+// reference compares the length with sizeof(FILE_SEPARATOR), which counts
+// the terminating NUL, so an output that is a separator and nothing else is
+// left as it is.
+func (s *scan) trimSep() {
+	invariant.Check(s.nseps >= 0 && s.nseps <= maxSeps, "separator count within cap")
+	if s.outLen < len(sepText)+1 {
+		return
+	}
+	if s.nseps > 0 && int(s.seps[s.nseps-1])+len(sepText) == s.outLen {
+		s.nseps--
+		s.outLen = int(s.seps[s.nseps])
+	}
+}
 
 // noteRule records a line that contributed text.
 func (s *scan) noteRule(rec int32) {

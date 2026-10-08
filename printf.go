@@ -4,6 +4,7 @@
 package softmagic
 
 import (
+	"math"
 	"strconv"
 
 	"github.com/eitanity/softmagic/internal/invariant"
@@ -234,6 +235,24 @@ func (s *scan) spaces(n int) {
 	}
 }
 
+// formatCFloat is a floating conversion as C's printf spells it. Go writes
+// "NaN", "+Inf" and "-Inf"; glibc writes "nan" or "-nan" by the NaN's sign
+// bit, and "inf" or "-inf".
+func formatCFloat(f float64, verb byte, prec int) string {
+	switch {
+	case math.IsNaN(f) && math.Signbit(f):
+		return "-nan"
+	case math.IsNaN(f):
+		return "nan"
+	case math.IsInf(f, 1):
+		return "inf"
+	case math.IsInf(f, -1):
+		return "-inf"
+	default:
+		return strconv.FormatFloat(f, verb, prec, 64)
+	}
+}
+
 // printfFloat prints desc with its floating conversion applied.
 func (s *scan) printfFloat(desc string, f float64) {
 	invariant.Check(s.outLen <= maxOutput, "output length within cap")
@@ -250,14 +269,14 @@ func (s *scan) printfFloat(desc string, f float64) {
 	var str string
 	switch c.verb {
 	case 'e', 'E', 'f', 'F', 'g', 'G':
-		str = strconv.FormatFloat(f, lower(c.verb), prec, 64)
+		str = formatCFloat(f, lower(c.verb), prec)
 		if c.verb == 'E' || c.verb == 'G' || c.verb == 'F' {
 			str = upper(str)
 		}
 	default:
 		str = "%" + string(c.verb)
 	}
-	if c.plus && f >= 0 {
+	if c.plus && !math.Signbit(f) {
 		str = "+" + str
 	}
 	s.writeString(desc[:i])

@@ -39,6 +39,16 @@ a CLI should call for a file. `IdentifyPrefix` identifies a prefix and says in
 matching order in the format of `file -l`. A `Result` is never blank: an unmatched input is
 `data` / `application/octet-stream`.
 
+`Options.Continue` is libmagic's `MAGIC_CONTINUE`, `file -k`: `Result.Continued` then holds
+every match, as one list per output mode (descriptions, MIME types, encodings, extensions,
+Apple codes). The reference computes each mode in a run of its own, so the lists are
+independent: element *i* of one is not about the same entry as element *i* of another. Each
+list joined with `"\n- "` is byte-identical to `file -b -k` in that mode, and the rest of the
+`Result` is what it is without the option. A continue call does the work of five runs and
+costs about five times a first-match call: median 0.26 ms against 0.03 ms on the corpus, max
+1.1 ms. `Options.Raw` is `MAGIC_RAW`, `file -r`: strings taken from the input are printed as
+they are rather than with non-printable bytes as `\ooo` escapes.
+
 The compiled form (`Marshal`, `Load`) carries a format version, the `file` release it was
 compiled for and the source hash; `Load` refuses another version or release by name. After
 `Load` or `Default`, regexes compile on first use behind one `sync.Once` per rule, which keeps

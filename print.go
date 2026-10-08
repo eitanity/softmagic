@@ -58,7 +58,7 @@ func (s *scan) mprintOther(m *record, desc string) {
 	v := s.value[:]
 	switch m.typ {
 	case tDer:
-		s.printfStr(desc, printable(s.rxScratch(printableMax), v, maxString))
+		s.printfStr(desc, printable(s.rxScratch(printableMax), v, maxString, s.raw))
 	case tGUID, tLeGUID:
 		s.printfStr(desc, []byte(guidString(v, false)))
 	case tBeGUID:
@@ -132,7 +132,7 @@ func hasStringConv(desc string) bool {
 func (s *scan) printString(m *record, desc string) {
 	invariant.Check(m.typ == tString || m.typ == tPString || m.typ == tBeString16 || m.typ == tLeString16, "string line")
 	if m.reln == '=' || m.reln == '!' {
-		s.printfStr(desc, printable(s.rxScratch(printableMax), m.value, maxString))
+		s.printfStr(desc, printable(s.rxScratch(printableMax), m.value, maxString, s.raw))
 		return
 	}
 	str := s.value[:]
@@ -142,7 +142,7 @@ func (s *scan) printString(m *record, desc string) {
 	if m.strFlags()&strTrim != 0 {
 		str = trimSpace(str)
 	}
-	s.printfStr(desc, printable(s.rxScratch(printableMax), str, len(str)))
+	s.printfStr(desc, printable(s.rxScratch(printableMax), str, len(str), s.raw))
 }
 
 // printSearch prints the bytes a search or regex matched.
@@ -163,11 +163,15 @@ func (s *scan) printSearch(m *record, desc string) {
 	if m.strFlags()&strTrim != 0 {
 		str = trimSpace(str)
 	}
-	s.printfStr(desc, printable(s.rxScratch(printableMax), str, len(str)))
+	s.printfStr(desc, printable(s.rxScratch(printableMax), str, len(str), s.raw))
 }
 
-// trimSpace is file_strtrim: leading and trailing C whitespace removed.
+// trimSpace is file_strtrim: leading and trailing C whitespace removed
+// from the C string in b, which ends at its first NUL.
 func trimSpace(b []byte) []byte {
+	if nul := indexByteFrom(b, 0, 0); nul >= 0 {
+		b = b[:nul]
+	}
 	i := 0
 	for ; i < len(b) && cIsSpace(b[i]); i++ {
 	}
@@ -179,8 +183,9 @@ func trimSpace(b []byte) []byte {
 }
 
 // printable is file_printable: the string up to its NUL or n bytes, with
-// non-printable bytes as \ooo escapes, in a buffer of bufsiz bytes.
-func printable(buf, str []byte, n int) []byte {
+// non-printable bytes as \ooo escapes unless raw (MAGIC_RAW), in a buffer
+// of bufsiz bytes.
+func printable(buf, str []byte, n int, raw bool) []byte {
 	invariant.Check(len(buf) <= regexScratchSize, "printable buffer bounded")
 	invariant.Check(len(buf) >= 4, "printable buffer holds an escape")
 	invariant.Check(n >= 0, "length non-negative")
@@ -188,7 +193,7 @@ func printable(buf, str []byte, n int) []byte {
 	limit := len(buf) - 1
 	for i := 0; i < n && i < len(str) && str[i] != 0 && out < limit; i++ {
 		c := str[i]
-		if cIsPrint(c) {
+		if raw || cIsPrint(c) {
 			buf[out] = c
 			out++
 			continue
@@ -209,7 +214,7 @@ func printable(buf, str []byte, n int) []byte {
 // conversion, or formatted and printed with %s.
 func (s *scan) printFloat(desc string, f float64) {
 	if hasStringConv(desc) {
-		s.printfStr(desc, []byte(strconv.FormatFloat(f, 'g', 6, 64)))
+		s.printfStr(desc, []byte(formatCFloat(f, 'g', 6)))
 		return
 	}
 	s.printfFloat(desc, f)

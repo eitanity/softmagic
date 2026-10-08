@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -37,6 +38,18 @@ func FuzzIdentify(f *testing.F) {
 		}
 		if len(r.Description) > maxOutput {
 			t.Fatalf("description over the cap: %d", len(r.Description))
+		}
+		// Continue mode, raw on alternate inputs: every list present and
+		// within the output cap, and the first-match answer unchanged.
+		c := db.IdentifyWith(context.Background(), data, Options{Continue: true, Raw: len(data)%2 == 1})
+		for _, list := range [][]string{c.Continued.Descriptions, c.Continued.MIMEs, c.Continued.Encodings,
+			c.Continued.Extensions, c.Continued.Apple} {
+			if len(list) == 0 || len(strings.Join(list, "\n- ")) > maxOutput+len(c.Charset) {
+				t.Fatalf("continue list missing or over the cap: %q", list)
+			}
+		}
+		if len(data)%2 == 0 && c.Description != r.Description {
+			t.Fatalf("continue changed the description: %q vs %q", c.Description, r.Description)
 		}
 	})
 }

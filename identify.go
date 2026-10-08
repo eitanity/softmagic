@@ -156,6 +156,9 @@ func (s *scan) finishResult(r Result, desc, mime, charset string) Result {
 	invariant.Check(desc != "", "a blank is never an answer")
 	invariant.Check(mime != "" && charset != "", "MIME and charset always set")
 	r.Description, r.MIME, r.Charset = desc, mime, charset
+	if s.wantCont {
+		r.Continued = s.identifyContinue(charset)
+	}
 	r.Examined.Bytes = s.maxRead
 	r.Examined.Truncated = s.truncated
 	return r
@@ -171,6 +174,10 @@ func (s *scan) softmagic(win []byte, mode uint16, text bool) bool {
 		s.winID = windowText
 	}
 	rv := false
+	if s.cont {
+		// file_softmagic's locals, fresh for each call.
+		s.printedSomething, s.needSeparator, s.firstline = false, false, true
+	}
 	for i := range s.db.maps { // file_softmagic: one match() per map, in order
 		s.nframes = 0
 		s.levels = [maxLevels]levelInfo{}
@@ -179,8 +186,10 @@ func (s *scan) softmagic(win []byte, mode uint16, text bool) bool {
 			mode: mode, text: text, mapIdx: i}
 		ok := s.pushFrame(&root)
 		invariant.Check(ok, "root frame fits")
-		if rv = s.run(); rv {
-			break
+		found := s.run()
+		rv = rv || found
+		if found && !s.cont {
+			break // under MAGIC_CONTINUE every map answers
 		}
 	}
 	s.endWindow()

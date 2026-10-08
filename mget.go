@@ -650,7 +650,7 @@ func (s *scan) pushIndirect(m *record, f *frame, offset uint32) (int, bool) {
 		first: s.db.maps[0].first, count: s.db.maps[0].count, kind: kindIndirect, mapIdx: 0,
 		base: f.base + int(offset), n: f.n - int(offset), o: 0,
 		mode: flagBinTest, text: f.text, flip: false,
-		savedOutLen: s.outLen, childOffset: offset,
+		savedOutLen: s.outLen, savedNseps: s.nseps, childOffset: offset,
 	}
 	if !s.pushFrame(&child) {
 		return 0, false
@@ -667,7 +667,8 @@ func (s *scan) finishIndirect(parent, child *frame, rv bool) int {
 	childOut := s.out[child.savedOutLen:s.outLen]
 	tmp := s.rxScratch(maxOutput) // free here: no regex runs between push and pop
 	n := copy(tmp, childOut)
-	s.outLen = child.savedOutLen
+	childSeps := s.nseps
+	s.outLen, s.nseps = child.savedOutLen, child.savedNseps
 	if !rv {
 		return 0
 	}
@@ -675,6 +676,30 @@ func (s *scan) finishIndirect(parent, child *frame, rv bool) int {
 	if s.mode == modeDesc {
 		s.printfNum(m.descString(), uint64(child.childOffset), false, 32)
 	}
+	s.moveSeps(child.savedNseps, childSeps, s.outLen-child.savedOutLen)
 	s.write(tmp[:n])
+	s.dropSepsPast()
 	return 1
+}
+
+// moveSeps reinstates the separators an indirect child printed, now that
+// its output is re-emitted delta bytes later.
+func (s *scan) moveSeps(from, to, delta int) {
+	invariant.Check(from >= 0 && from <= to && to <= maxSeps, "separator range within cap")
+	invariant.Check(delta >= 0, "the parent's text only moves the child's output later")
+	for i := from; i < to; i++ {
+		s.seps[i] = smallInt32(int(s.seps[i]) + delta)
+	}
+	s.nseps = to
+}
+
+// dropSepsPast forgets separators that truncation cut off the output.
+func (s *scan) dropSepsPast() {
+	invariant.Check(s.nseps >= 0 && s.nseps <= maxSeps, "separator count within cap")
+	for range s.nseps {
+		if int(s.seps[s.nseps-1])+len(sepText) <= s.outLen {
+			return
+		}
+		s.nseps--
+	}
 }

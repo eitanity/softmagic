@@ -4,6 +4,7 @@
 package softmagic
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,7 +13,7 @@ import (
 	"time"
 )
 
-func corpusFiles(t *testing.T) [][]byte {
+func corpusFiles(t testing.TB) [][]byte {
 	t.Helper()
 	names, err := filepath.Glob("testdata/corpus/*.testfile")
 	if err != nil {
@@ -80,6 +81,20 @@ func BenchmarkIdentify(b *testing.B) {
 	}
 }
 
+// BenchmarkIdentifyContinue is BenchmarkIdentify with Options.Continue.
+func BenchmarkIdentifyContinue(b *testing.B) {
+	db, err := compileFS(os.DirFS("magic/Magdir"), CompileOptions{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	files := corpusFiles(b)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		db.IdentifyWith(context.Background(), files[i%len(files)], Options{Continue: true})
+	}
+}
+
 func BenchmarkCompile(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if _, err := compileFS(os.DirFS("magic/Magdir"), CompileOptions{}); err != nil {
@@ -88,32 +103,38 @@ func BenchmarkCompile(b *testing.B) {
 	}
 }
 
-// TestLatencyReport logs per-file latency percentiles over the corpus (targets:
-// median <= 1 ms, p95 <= 5 ms, max <= 50 ms). It fails only
-// on the max bound, which does not depend on the machine's speed as much.
+// TestLatencyReport logs per-file latency percentiles over the corpus,
+// first-match and in continue mode (targets: median <= 1 ms, p95 <= 5 ms,
+// max <= 50 ms). It fails only on the max bound, which does not depend on
+// the machine's speed as much.
 func TestLatencyReport(t *testing.T) {
 	if testing.Short() || raceEnabled {
 		t.Skip("timing")
 	}
 	db := compileMagdir(t)
 	files := corpusFiles(t)
-	const rounds = 20
-	per := make([]time.Duration, 0, len(files))
-	for _, f := range files {
-		best := time.Duration(1 << 62)
-		for r := 0; r < rounds; r++ {
-			start := time.Now()
-			db.Identify(f)
-			if d := time.Since(start); d < best {
-				best = d
+	for _, mode := range []struct {
+		name string
+		o    Options
+	}{{"first match", Options{}}, {"continue", Options{Continue: true}}} {
+		const rounds = 20
+		per := make([]time.Duration, 0, len(files))
+		for _, f := range files {
+			best := time.Duration(1 << 62)
+			for r := 0; r < rounds; r++ {
+				start := time.Now()
+				db.IdentifyWith(context.Background(), f, mode.o)
+				if d := time.Since(start); d < best {
+					best = d
+				}
 			}
+			per = append(per, best)
 		}
-		per = append(per, best)
-	}
-	sort.Slice(per, func(i, j int) bool { return per[i] < per[j] })
-	median, p95, max := per[len(per)/2], per[len(per)*95/100], per[len(per)-1]
-	t.Logf("latency over %d files (best of %d): median %v, p95 %v, max %v", len(per), rounds, median, p95, max)
-	if max > 50*time.Millisecond {
-		t.Errorf("max latency %v exceeds 50 ms", max)
+		sort.Slice(per, func(i, j int) bool { return per[i] < per[j] })
+		median, p95, max := per[len(per)/2], per[len(per)*95/100], per[len(per)-1]
+		t.Logf("%s, %d files (best of %d): median %v, p95 %v, max %v", mode.name, len(per), rounds, median, p95, max)
+		if max > 50*time.Millisecond {
+			t.Errorf("%s: max latency %v exceeds 50 ms", mode.name, max)
+		}
 	}
 }
