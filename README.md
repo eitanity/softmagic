@@ -97,8 +97,10 @@ order. The default, `magic/Magdir`, is what the listing oracle was taken with.
 
 ## Safety
 
-No `unsafe`, cgo, `os/exec`, network or third-party module: `go.mod` has no `require` for the 
-library, only `tool` directives. The compiled database is immutable; all per-call state is a
+No `unsafe`, cgo, `os/exec`, network or third-party module in the build: every requirement in
+`go.mod` is there for a `tool` directive (the linters and govulncheck), and none is linked into
+the library or a program that uses it. `SECURITY.md` describes what the library trusts and how
+to use it on untrusted input. The compiled database is immutable; all per-call state is a
 pooled `scan` struct of fixed-size arrays. Every limit that fires is reported in
 `Examined.Truncated`. The module's own code follows Holzmann's Power of Ten: no recursion (the
 reference's recursive `use`/`indirect` evaluation runs on an explicit frame stack), only counted
