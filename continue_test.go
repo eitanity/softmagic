@@ -134,3 +134,27 @@ func TestIndependentRunsAgree(t *testing.T) {
 		}
 	}
 }
+
+// TestContinueEscaped: without Raw, each list is escaped as the reference
+// escapes the one buffer it prints, so joined with the separator as that
+// escaping prints it ("\012- ") a list is file -b -k's output. The
+// expectations are file 5.48's, for files whose %c rules print ESC, NUL
+// and 0xff.
+func TestContinueEscaped(t *testing.T) {
+	db := compileMagdir(t)
+	for name, want := range map[string]string{
+		"sample-os2-msg-control.testfile": "OS/2 help message 'DOS', 1 messages, version 0, at 0x30 \\033-type hello, " +
+			"at 0 \\377-type MKMSGF, at 0 \\377-type MKMSGF\\012- data",
+		"sample-os2-msg-nul.testfile": "OS/2 help message 'DOS', 1 messages, version 0, at 0x30  hello, " +
+			"at 0 \\377-type MKMSGF, at 0 \\377-type MKMSGF\\012- data",
+	} {
+		data, err := os.ReadFile(filepath.Clean(filepath.Join("testdata/corpus", name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := db.IdentifyWith(context.Background(), data, Options{Continue: true})
+		if got := strings.Join(r.Continued.Descriptions, "\\012- "); got != want {
+			t.Errorf("%s:\n got %q\nwant %q", name, got, want)
+		}
+	}
+}

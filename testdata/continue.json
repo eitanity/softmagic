@@ -496,6 +496,20 @@
   "tar/gtar\n- ???",
   "UNKNUNKN"
  ],
+ "sample-os2-msg-control.testfile": [
+  "OS/2 help message 'DOS', 1 messages, version 0, at 0x30 \u001b-type hello, at 0 \u00ff-type MKMSGF, at 0 \u00ff-type MKMSGF\n- data",
+  "application/x-os2-msg\n- application/octet-stream",
+  "binary",
+  "msg\n- ???",
+  "UNKNUNKN"
+ ],
+ "sample-os2-msg-nul.testfile": [
+  "OS/2 help message 'DOS', 1 messages, version 0, at 0x30  hello, at 0 \u00ff-type MKMSGF, at 0 \u00ff-type MKMSGF\n- data",
+  "application/x-os2-msg\n- application/octet-stream",
+  "binary",
+  "msg\n- ???",
+  "UNKNUNKN"
+ ],
  "sample-posix-tar.testfile": [
   "POSIX tar archive (GNU)\n- POSIX tar archive (GNU), file h.txt, mode 0000664, uid 0001751, gid 0001751, size 00000000006, seconds 15260133212, user mb, group mb\n- data",
   "application/x-tar\n- application/x-gtar\n- application/octet-stream",

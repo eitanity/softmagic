@@ -17,7 +17,7 @@ import (
 // notes, the CDF reader's sectors, and the tail a line counted from the end
 // reads. The input chooses a small MaxBytes so the window is short of the
 // data, a size that may claim more than there is (a file cut short under
-// the reader), and continue, raw, exclusions and limits. No input may
+// the reader), and continue, raw, SafeText, exclusions and limits. No input may
 // panic, hang or give a blank answer, and the same call twice must give
 // the same Result, which a pooled scan carrying state from one call into
 // the next would not.
@@ -50,6 +50,12 @@ func FuzzIdentifyAt(f *testing.F) {
 			o.Continue && (len(c.MIMEs) == 0) != c.Failures.MIME.Failed() {
 			t.Fatalf("a continue list is missing without a failure, or present with one: %+v", c)
 		}
+		switch {
+		case o.SafeText:
+			fuzzSafeASCII(t, r1)
+		case !o.Raw:
+			fuzzEscaped(t, r1)
+		}
 		r2 := db.IdentifyAt(ctx, bytes.NewReader(data), size, o)
 		if a, b := fuzzJSON(t, r1), fuzzJSON(t, r2); a != b {
 			t.Fatalf("the same call twice differs:\n %s\n %s", a, b)
@@ -59,7 +65,8 @@ func FuzzIdentifyAt(f *testing.F) {
 
 // fuzzAtOptions are the options a FuzzIdentifyAt input chooses.
 func fuzzAtOptions(window uint16, claim, flags uint8) Options {
-	o := Options{MaxBytes: int(window%2048) + 1, Continue: flags&1 != 0, Raw: flags&2 != 0} // options
+	o := Options{MaxBytes: int(window%2048) + 1, Continue: flags&1 != 0, Raw: flags&2 != 0,
+		SafeText: window&0x8000 != 0} // options
 	if flags&4 != 0 {
 		o.Exclude = Checks(claim) << 2 // the detectors and the encoding, not always the rules
 	}

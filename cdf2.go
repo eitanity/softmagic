@@ -263,7 +263,7 @@ func (pr cdfPrinter) stringProperty(p *cdfProp, name, str string) string { // pr
 	text := propertyText(p)
 	if pr.notMime() {
 		if text != "" {
-			pr.write(", " + name + ": " + text)
+			pr.write(", " + name + ": " + pr.s.fileText(text))
 		}
 	} else if str == "" && p.id == cdfPropAppName {
 		str = appName(text)
@@ -343,7 +343,7 @@ func (pr cdfPrinter) catalogInfo(c *cdfFile) int {
 		return -1
 	}
 	for i := 1; i < len(names); i++ {
-		pr.write(names[i])
+		pr.write(pr.s.fileText(names[i]))
 		if i == len(names)-1 {
 			pr.write("]")
 		} else {

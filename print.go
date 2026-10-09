@@ -58,7 +58,7 @@ func (s *scan) mprintOther(m *record, desc string) { // rule
 	v := s.value[:] // valueImage
 	switch m.typ {
 	case tDer:
-		s.printfStr(desc, printable(s.rxScratch(printableMax), v, maxString, s.raw))
+		s.printfStr(desc, printable(s.rxScratch(printableMax), v, maxString, s.raw || s.safe))
 	case tGUID, tLeGUID:
 		s.printfStr(desc, []byte(guidString(v, false)))
 	case tBeGUID:
@@ -132,7 +132,7 @@ func hasStringConv(desc string) bool {
 func (s *scan) printString(m *record, desc string) { // rule
 	invariant.Check(m.typ == tString || m.typ == tPString || m.typ == tBeString16 || m.typ == tLeString16, "string line")
 	if m.reln == '=' || m.reln == '!' {
-		s.printfStr(desc, printable(s.rxScratch(printableMax), m.value, maxString, s.raw))
+		s.printfStr(desc, printable(s.rxScratch(printableMax), m.value, maxString, s.raw || s.safe))
 		return
 	}
 	str := s.value[:]
@@ -142,7 +142,7 @@ func (s *scan) printString(m *record, desc string) { // rule
 	if m.strFlags()&strTrim != 0 {
 		str = trimSpace(str)
 	}
-	s.printfStr(desc, printable(s.rxScratch(printableMax), str, len(str), s.raw))
+	s.printfStr(desc, printable(s.rxScratch(printableMax), str, len(str), s.raw || s.safe))
 }
 
 // printSearch prints the bytes a search or regex matched.
@@ -163,7 +163,7 @@ func (s *scan) printSearch(m *record, desc string) { // rule
 	if m.strFlags()&strTrim != 0 {
 		str = trimSpace(str)
 	}
-	s.printfStr(desc, printable(s.rxScratch(printableMax), str, len(str), s.raw))
+	s.printfStr(desc, printable(s.rxScratch(printableMax), str, len(str), s.raw || s.safe))
 }
 
 // trimSpace is file_strtrim: leading and trailing C whitespace removed

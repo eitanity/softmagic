@@ -87,7 +87,15 @@ func (s *scan) printfNum(desc string, v uint64, signed bool, bits int) { // valu
 	}
 	c := parseConv(desc, i)
 	s.writeString(desc[:i])
-	s.writeString(formatInt(c, v&widthMask(bits), bits, signed))
+	f := formatInt(c, v&widthMask(bits), bits, signed) // formatted
+	// The reference formats into a C string, so a %c of zero ends the
+	// piece there: what follows the NUL, in the field or the description,
+	// is never printed.
+	if nul := indexFrom(f, 0, 0); nul < len(f) {
+		s.writeString(s.fileText(f[:nul]))
+		return
+	}
+	s.writeString(s.fileText(f)) // a %c byte is the input's; digits are kept as they are
 	s.writeString(desc[c.end:])
 }
 
@@ -115,7 +123,7 @@ func formatInt(c convSpec, v uint64, bits int, _ bool) string { // spec
 	case 'o':
 		digits = strconv.FormatUint(v, 8)
 	case 'c':
-		return padField(c, string(rune(low8(v))), false)
+		return padField(c, string([]byte{low8(v)}), false) // the byte itself, as C's %c writes it
 	default:
 		return "%" + string(c.verb)
 	}
@@ -210,6 +218,7 @@ func (s *scan) printfStr(desc string, str []byte) {
 	if c.hasPrec && c.prec < len(str) {
 		str = str[:c.prec]
 	}
+	str = s.fileBytes(str) // the field, as SafeText escapes text from the input
 	s.writeString(desc[:i])
 	pad := c.width - len(str)
 	if !c.minus {

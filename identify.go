@@ -111,7 +111,7 @@ func (db *Database) identify(ctx context.Context, data []byte, o Options, comple
 func (db *Database) identifyIndependent(data []byte) Result {
 	r := db.Identify(data)
 	s := db.pool.get(db, context.Background(), data, Options{})
-	r = s.independentResult(r)
+	r = escapeResult(s.independentResult(r))
 	db.pool.put(s)
 	return r
 }
@@ -183,6 +183,12 @@ func (s *scan) finishResult(r Result, desc, mime, charset string) Result { // re
 	}
 	r.Examined.Bytes = s.maxRead
 	r.Examined.Truncated = s.truncated
+	switch {
+	case s.safe:
+		r = safeResult(r)
+	case !s.raw:
+		r = escapeResult(r)
+	}
 	return r
 }
 

@@ -45,8 +45,11 @@ type Result struct {
 // entry can answer in one mode and not another (a match with no MIME
 // annotation is a description and no MIME type), so element i of one list
 // is not about the same entry as element i of another. Each list is that
-// mode's output split where a separator was printed; joined with "\n- " it
-// is byte-identical to file -b -k in that mode. An element can be empty:
+// mode's output split where a separator was printed. Without Options.Raw
+// the elements are escaped as the reference escapes the one buffer it
+// prints them in, so joined with "\\012- " (the separator as that escaping
+// prints it) a list is byte-identical to file -b -k in that mode; with Raw,
+// joined with "\n- ", to file -b -k -r. An element can be empty:
 // the reference prints a separator after a match that printed nothing in
 // that mode. All are nil without Options.Continue.
 type Continued struct {

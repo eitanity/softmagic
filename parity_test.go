@@ -12,8 +12,7 @@ import (
 
 // TestParityCorpus checks every corpus file against the
 // reference's `file -b`, `-b -i`, `-b --extension` and `-b --apple`
-// outputs. The figure is logged; divergences are listed for
-// classification.
+// outputs. Any difference fails; the figure is logged.
 func TestParityCorpus(t *testing.T) {
 	db := compileMagdir(t) // database
 	files, err := filepath.Glob("testdata/corpus/*.testfile")
@@ -43,13 +42,13 @@ func TestParityCorpus(t *testing.T) {
 		if r.Description == lines[0] {
 			okDesc++
 		} else {
-			t.Logf("%s: desc\n got %q\nwant %q", name, r.Description, lines[0])
+			t.Errorf("%s: desc\n got %q\nwant %q", name, r.Description, lines[0])
 		}
 		gotMime := r.MIME + "; charset=" + r.Charset
 		if gotMime == lines[1] {
 			okMime++
 		} else {
-			t.Logf("%s: mime got %q want %q", name, gotMime, lines[1])
+			t.Errorf("%s: mime got %q want %q", name, gotMime, lines[1])
 		}
 		gotExt := strings.Join(r.Extensions, "/")
 		if gotExt == "" {
@@ -58,7 +57,7 @@ func TestParityCorpus(t *testing.T) {
 		if gotExt == lines[2] {
 			okExt++
 		} else {
-			t.Logf("%s: ext got %q want %q", name, gotExt, lines[2])
+			t.Errorf("%s: ext got %q want %q", name, gotExt, lines[2])
 		}
 		gotApple := r.Apple
 		if gotApple == "" {
@@ -67,7 +66,7 @@ func TestParityCorpus(t *testing.T) {
 		if len(lines) >= 4 && gotApple == lines[3] {
 			okApple++
 		} else if len(lines) >= 4 {
-			t.Logf("%s: apple got %q want %q", name, gotApple, lines[3])
+			t.Errorf("%s: apple got %q want %q", name, gotApple, lines[3])
 		}
 		if r.Examined.Truncated != "" {
 			t.Logf("%s: truncated %q", name, r.Examined.Truncated)

@@ -150,7 +150,7 @@ func (e *elfState) bidNote(n *elfNote) bool { // note
 		return true
 	}
 	if len(n.name) == 4 && string(n.name[:3]) == "Go\x00" && n.typ == ntGoBuildID && len(n.desc) < 128 {
-		e.printf(", Go BuildID=" + copyStr(n.desc, 255))
+		e.printf(", Go BuildID=" + e.s.fileText(copyStr(n.desc, 255)))
 		return true
 	}
 	return false
@@ -351,7 +351,7 @@ func (e *elfState) netbsdNote(n *elfNote) { // note
 		return
 	}
 	e.flags |= flag
-	e.printf(", " + tag + ": " + copyStr(d, 255))
+	e.printf(", " + tag + ": " + e.s.fileText(copyStr(d, 255)))
 }
 
 // coreNote is do_core_note.
@@ -389,8 +389,8 @@ func (e *elfState) netbsdCore(n *elfNote) bool { // note
 	}
 	var pi [160]byte // psinfo
 	copy(pi[:], n.desc)
-	name := printable(e.s.rxScratch(printableMax), pi[124:156], 31, e.s.raw)
-	e.printf(", from '" + string(name) + "', pid=" + u10(uint64(e.u32(pi[80:84]))) +
+	name := printable(e.s.rxScratch(printableMax), pi[124:156], 31, e.s.raw || e.s.safe)
+	e.printf(", from '" + e.s.fileText(string(name)) + "', pid=" + u10(uint64(e.u32(pi[80:84]))) +
 		", uid=" + u10(uint64(e.u32(pi[100:104]))) + ", gid=" + u10(uint64(e.u32(pi[112:116]))) +
 		", nlwps=" + u10(uint64(e.u32(pi[120:124]))) + ", lwp=" + u10(uint64(e.u32(pi[156:160]))) +
 		" (signal " + u10(uint64(e.u32(pi[8:12]))) + "/code " + u10(uint64(e.u32(pi[12:16]))) + ")")
@@ -446,7 +446,7 @@ func (e *elfState) svr4Core(n *elfNote, data []byte, doff int) bool { // note
 		}
 		for ; end > start && cIsSpace(data[end-1]); end-- {
 		}
-		e.printf(", from '" + copyStr(data[start:end], 255) + "'")
+		e.printf(", from '" + e.s.fileText(copyStr(data[start:end], 255)) + "'")
 		e.flags |= elfDidCore
 		return true
 	}
@@ -519,7 +519,7 @@ func (e *elfState) auxvNote(n *elfNote) bool { // note
 		}
 		if isString {
 			if str, ok := e.stringAt(val); ok {
-				e.printf(", " + tag + ": '" + str + "'")
+				e.printf(", " + tag + ": '" + e.s.fileText(str) + "'")
 			}
 			continue
 		}

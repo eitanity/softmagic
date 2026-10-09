@@ -24,3 +24,9 @@ module's `LICENSE`. Their `.expect` files were produced the same way as the othe
 `sample-word97-doc` and `sample-excel97-xls` were written by LibreOffice 25.x from a two-line text
 file and a two-line CSV; `sample-x509-der` is a self-signed certificate from `openssl req`. All
 under the module's `LICENSE`, expectations from the reference as above.
+
+`sample-os2-msg-control` and `sample-os2-msg-nul` were written by hand for this module on
+2026-10-09: an OS/2 message file (Magdir `os2`) whose message-type byte, printed with `%c`, is
+ESC in the first and NUL in the second, and whose header byte `0xff` is printed with `%c` too.
+They cover a byte printed as itself, escaped by the reference's output step, and a `%c` of zero
+ending the printed piece. Under the module's `LICENSE`, expectations from the reference as above.

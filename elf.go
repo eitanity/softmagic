@@ -366,7 +366,7 @@ func (e *elfState) linking(dynamic, pie bool, need int, interp string) {
 	}
 	if interp != "" {
 		e.printf(", interpreter ")
-		e.s.write(printable(e.s.rxScratch(elfNbufSize), []byte(interp), len(interp), e.s.raw))
+		e.s.write(e.s.fileBytes(printable(e.s.rxScratch(elfNbufSize), []byte(interp), len(interp), e.s.raw || e.s.safe)))
 	}
 }
 

@@ -1,4 +1,4 @@
-.PHONY: build test lint vet fuzz list generate
+.PHONY: build test lint vet fuzz list generate wctype
 
 # Every test, fuzz and CI run is built with the assertion tag, so a failed
 # invariant panics instead of being recorded as Truncated "invariant".
@@ -31,3 +31,9 @@ generate:
 # listing in testdata by TestListOracle.
 list:
 	go test $(TAGS) -run TestListOracle -v . | head -40
+
+# Regenerates the iswprint table from this host's glibc (see scripts/wctype.c).
+wctype:
+	cc -O2 -o .wctype scripts/wctype.c
+	./.wctype softmagic > wctype.go
+	rm -f .wctype

@@ -43,11 +43,25 @@ matching order in the format of `file -l`. A `Result` is never blank: an unmatch
 every match, as one list per output mode (descriptions, MIME types, encodings, extensions,
 Apple codes). The reference computes each mode in a run of its own, so the lists are
 independent: element *i* of one is not about the same entry as element *i* of another. Each
-list joined with `"\n- "` is byte-identical to `file -b -k` in that mode, and the rest of the
+list joined with `"\\012- "` is byte-identical to `file -b -k` in that mode (with `Raw`, joined
+with `"\n- "`, to `file -b -k -r`), and the rest of the
 `Result` is what it is without the option. A continue call does the work of five runs and
 costs about five times a first-match call: median 0.26 ms against 0.03 ms on the corpus, max
-1.1 ms. `Options.Raw` is `MAGIC_RAW`, `file -r`: strings taken from the input are printed as
-they are rather than with non-printable bytes as `\ooo` escapes.
+1.1 ms. `Options.Raw` is `MAGIC_RAW`, `file -r`: the answer is returned as it was printed.
+Without it, every answer goes through the reference's output escaping, as libmagic's
+`magic_buffer` returns it: a character glibc's `iswprint` rejects in a UTF-8 locale (a control
+byte a `%c` rule copied from the input, say) is written as the `\ooo` escapes of its bytes, and
+an answer that is not valid UTF-8 has every byte outside printable ASCII escaped. The table of
+printable characters is generated from glibc (`make wctype`). `Failure` buffers are not escaped,
+as `file` prints its errors.
+
+`Options.SafeText` is not in the reference: it gives an answer safe to put into HTML, a log line
+or a quoted value as it is. Every byte copied from the input (a `%s` string or match, a `%c`
+byte, an ELF interpreter or note string, a CDF property or catalog name) is written as `\xHH`
+unless it is printable ASCII other than `\ < > & " '` and the backquote, so text from the file
+can neither open markup nor end a quoted value, and each backslash from the file starts an
+escape, which makes the text decode exactly. Every answer and failure buffer is then printable
+ASCII. The rules' own text and the classification are unchanged; it overrides `Raw`.
 
 `Options.Exclude` is `MAGIC_NO_CHECK_*`, `file -e`: `CheckSoft`, `CheckText`, `CheckEncoding`,
 `CheckTar`, `CheckJSON`, `CheckCSV`, `CheckSIMH`, `CheckCDF`, `CheckELF` switch those checks off
@@ -104,8 +118,8 @@ to use it on untrusted input. The compiled database is immutable; all per-call s
 pooled `scan` struct of fixed-size arrays. Every limit that fires is reported in
 `Examined.Truncated`. The module's own code follows Holzmann's Power of Ten: no recursion (the
 reference's recursive `use`/`indirect` evaluation runs on an explicit frame stack), only counted
-loops, one assertion primitive (`internal/invariant`) with a panic mode for tests and a recovery
-mode for release, functions under a page, no package-level mutable state, checked integer
+loops, one assertion primitive (`internal/invariant`) that panics in tests and in release
+returns the failed condition to its caller, which handles it, functions under a page, no package-level mutable state, checked integer
 conversions, one build tag, no function values or double indirection, and zero warnings from
 every tool. `internal/rules` is the test that checks what the linters cannot.
 
@@ -116,6 +130,7 @@ make test     # go test -tags softmagic_assert -race ./...
 make lint     # vet, staticcheck, govulncheck, gosec, golangci-lint
 make fuzz     # FuzzCompile for FUZZTIME (default 30s)
 make generate # rebuild magic/softmagic.db from magic/Magdir (TestEmbeddedCurrent fails if stale)
+make wctype   # regenerate wctype.go, the iswprint table, from this host's glibc (C.UTF-8)
 go test -tags softmagic_assert -run NONE -fuzz FuzzIdentify -fuzztime 60s .
 go test -run TestLatencyReport -v .
 ```

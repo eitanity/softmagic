@@ -84,9 +84,25 @@ type Options struct {
 	// lists every match in each output mode. The other fields of the
 	// Result are what they are without it.
 	Continue bool
-	// Raw is libmagic's MAGIC_RAW (file -r): strings from the input are
-	// printed as they are, not with non-printable bytes as \ooo escapes.
+	// Raw is libmagic's MAGIC_RAW (file -r): the answer is returned as it
+	// was printed. Without it, strings copied from the input have their
+	// non-printable bytes as \ooo escapes, and the whole answer then goes
+	// through the reference's output escaping, which writes as \ooo every
+	// character glibc's iswprint rejects in a UTF-8 locale (a control byte
+	// a %c rule copied, say) and, when the answer is not valid UTF-8,
+	// every byte outside printable ASCII.
 	Raw bool
+	// SafeText is not in the reference: an answer safe to place in HTML, a
+	// log line or a quoted value as it is. Every byte copied from the
+	// input is written as \xHH unless it is printable ASCII other than
+	// \ < > & " ' and `, so text from the file can neither open markup
+	// nor end a quoted value, and each backslash from the file starts an
+	// escape, which makes the text decode exactly. The answer as a whole,
+	// failure buffers included, is then printable ASCII: any other byte,
+	// such as the UTF-8 of a rule's own text, is \xHH too. Rule text is
+	// otherwise unchanged and the classification is the same. It
+	// overrides Raw. The answer is no longer the reference's.
+	SafeText bool
 	// Exclude switches checks off, as libmagic's MAGIC_NO_CHECK_* flags
 	// (file -e) do.
 	Exclude Checks
@@ -266,7 +282,8 @@ type scan struct {
 	wantCont         bool // Options.Continue
 	firstline        bool // the reference's firstline: nothing answered yet in this softmagic call
 	oobHit           bool
-	raw              bool  // Options.Raw
+	raw              bool  // Options.Raw, unless SafeText
+	safe             bool  // Options.SafeText
 	execBit          bool  // ms->mode & 0111: the caller's executable bit, then the ELF verdict
 	winID            uint8 // windowBin or windowText while a window is begun
 }
@@ -328,7 +345,8 @@ func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) {
 		s.maxDepth = maxFrames
 	}
 	s.execBit = o.Executable
-	s.raw = o.Raw
+	s.raw = o.Raw && !o.SafeText
+	s.safe = o.SafeText
 	s.exclude = o.Exclude
 	s.lim = o.Limits.resolve()
 	s.abort, s.elfStart, s.independent = "", -1, false

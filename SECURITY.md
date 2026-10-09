@@ -31,12 +31,17 @@ no module outside the standard library.
 ## Using softmagic on untrusted input
 
 **The description contains text from the input.** A rule may print a string it read from the
-file (a title, a name, a version). Non-printable bytes are written as `\ooo` escapes unless
-`Options.Raw` is set, so control characters and terminal escapes do not survive, but printable
-characters do: `<script>`, quotes or a convincing type name are passed through unchanged, as
-`file` passes them. Encode `Description` and the `Continued` lists for wherever they go: HTML,
-SQL, a shell command, a log line, a spreadsheet cell. Do not set `Options.Raw` for untrusted
-input.
+file (a title, a name, a version) or a single byte of it (`%c`). Unless `Options.Raw` is set,
+every answer goes through `file`'s output escaping: a character glibc's `iswprint` rejects is
+written as `\ooo`, so control characters and terminal escapes do not survive. Printable
+characters do: `<script>`, quotes, a convincing type name, and Unicode that glibc counts as
+printable (bidi controls such as U+202E among it) are passed through unchanged, as `file` passes
+them. `Failure.Buffer` and `Failure.Text` are not escaped, as `file` prints its errors.
+Encode `Description` and the `Continued` lists for wherever they go: HTML,
+SQL, a shell command, a log line, a spreadsheet cell. Or set `Options.SafeText`: every byte the
+file contributes is then `\xHH` unless it is printable ASCII other than `\ < > & " '` and the
+backquote, and every answer and failure buffer is printable ASCII, at the cost of no longer being
+`file`'s exact text. Do not set `Options.Raw` for untrusted input.
 
 **The answer is not an allow-list on its own.** softmagic gives the answer `file` 5.48 gives.
 The first strong match wins, and only the first `Options.MaxBytes` (7 MiB by default) are

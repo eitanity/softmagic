@@ -11,6 +11,7 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+	"unicode/utf8"
 )
 
 // FuzzIdentify checks that no input may panic, hang or produce a blank
@@ -39,6 +40,7 @@ func FuzzIdentify(f *testing.F) {
 		if len(r.Description) > maxOutput {
 			t.Fatalf("description over the cap: %d", len(r.Description))
 		}
+		fuzzEscaped(t, r)
 		// Continue mode, raw on alternate inputs: every list present and
 		// within the output cap, and the first-match answer unchanged.
 		c := db.IdentifyWith(context.Background(), data, Options{Continue: true, Raw: len(data)%2 == 1}) // continued
@@ -48,6 +50,15 @@ func FuzzIdentify(f *testing.F) {
 				t.Fatalf("continue list missing or over the cap: %q", list)
 			}
 		}
+		if len(data)%2 == 0 {
+			fuzzEscaped(t, c)
+		}
+		// SafeText: the same classification, every string printable ASCII.
+		st := db.IdentifyWith(context.Background(), data, Options{SafeText: true, Continue: true}) // safeText
+		if st.MIME != r.MIME || st.Phase != r.Phase {
+			t.Fatalf("SafeText changed the classification: %q %q vs %q %q", st.MIME, st.Phase, r.MIME, r.Phase)
+		}
+		fuzzSafeASCII(t, st)
 		if len(data)%2 == 0 && c.Description != r.Description {
 			t.Fatalf("continue changed the description: %q vs %q", c.Description, r.Description)
 		}
@@ -133,5 +144,42 @@ func fuzzJoin(t *testing.T, base *Database, rules []byte) {
 	b := loaded.IdentifyWith(ctx, rules, Options{Continue: true})
 	if a.Description == "" || a.Description != b.Description || a.MIME != b.MIME {
 		t.Fatalf("joined %q / %q, loaded %q / %q", a.Description, a.MIME, b.Description, b.MIME)
+	}
+}
+
+// fuzzEscaped fails when an answer made without Raw holds anything the
+// reference's output escaping would have escaped: invalid UTF-8, or a
+// character glibc's iswprint rejects, such as a control byte a %c rule
+// copied from the input.
+func fuzzEscaped(t *testing.T, r Result) {
+	t.Helper()
+	all := []string{r.Description, r.MIME, r.Charset, r.Apple}
+	for _, list := range [][]string{r.Extensions, r.Continued.Descriptions, r.Continued.MIMEs,
+		r.Continued.Encodings, r.Continued.Extensions, r.Continued.Apple} {
+		all = append(all, list...)
+	}
+	for _, text := range all {
+		if needsEscape(text, utf8.ValidString(text)) || !utf8.ValidString(text) {
+			t.Fatalf("an answer without Raw is not escaped: %q", text)
+		}
+	}
+}
+
+// fuzzSafeASCII fails when a SafeText answer or failure buffer holds a byte
+// outside printable ASCII.
+func fuzzSafeASCII(t *testing.T, r Result) {
+	t.Helper()
+	all := []string{r.Description, r.MIME, r.Charset, r.Apple, r.Failures.Description.Buffer,
+		r.Failures.MIME.Buffer, r.Continued.Failures.Description.Buffer}
+	for _, list := range [][]string{r.Extensions, r.Continued.Descriptions, r.Continued.MIMEs,
+		r.Continued.Encodings, r.Continued.Extensions, r.Continued.Apple} {
+		all = append(all, list...)
+	}
+	for _, text := range all {
+		for i := 0; i < len(text); i++ {
+			if !cIsPrint(text[i]) {
+				t.Fatalf("byte %#x in a SafeText answer: %q", text[i], text)
+			}
+		}
 	}
 }
