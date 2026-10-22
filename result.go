@@ -165,6 +165,11 @@ const (
 	TruncTime      = "time"
 	TruncOutput    = "output"
 	TruncInvariant = "invariant"
+	// TruncCDF is a Composite Document File sector chain larger than the
+	// library reads (only a header with a nonstandard sector size can
+	// declare one); the document is described as one whose chain could
+	// not be read.
+	TruncCDF = "cdf"
 	// TruncIndirect, TruncName and TruncELF are the hard limits of
 	// Options.Limits: the reference stops with an error, and so does the
 	// output mode that reached one (see Result.Failures).

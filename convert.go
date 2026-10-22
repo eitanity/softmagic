@@ -275,8 +275,14 @@ func (s *scan) cvtPString(m *record) bool {
 		return false
 	}
 	length := pstringLength(flags, s.value[:])
+	// The reference's length is a size_t, so a prefix smaller than its own
+	// size wraps: exactly FILE_BADSIZE (-1 here) refuses the line, and any
+	// other wrapped value is huge and is clamped like an overlong one.
+	if length == -1 {
+		return false
+	}
 	limit := maxString - sz
-	if length >= limit {
+	if length < 0 || length >= limit {
 		length = limit
 	}
 	copy(s.value[0:length], s.value[sz:sz+length])

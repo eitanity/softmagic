@@ -34,6 +34,11 @@ const (
 	cdfPropLimit    = 0xffffffff / (64 * 24)
 	cdfSectionDecl  = 0x1c
 	cdfMaxDirs      = 1 << 20
+	// cdfChainLimit is the most bytes one sector chain is read into: the
+	// loop limit's worth of 4096-byte sectors, the larger of the format's
+	// two sector sizes. Only a header with a nonstandard sector size can
+	// declare a longer chain.
+	cdfChainLimit = cdfLoopLimit * 4096
 )
 
 // Directory entry types.
@@ -318,6 +323,32 @@ func countChain(sat []byte, sid int32) int {
 	return n
 }
 
+// chainFits reports whether a chain of n sectors of ss bytes can be read
+// from avail bytes of its source. A chain that ends never repeats a
+// sector, so its n sectors need n*ss bytes: one that does not fit would
+// fail to read anyway and is refused before its buffer is allocated. One
+// that fits but exceeds cdfChainLimit is refused and reported.
+func (c *cdfFile) chainFits(n, ss int, avail int64) bool { // sectorSize
+	if !invariant.Check(n >= 0 && ss > 0, "chain length and sector size") {
+		return false
+	}
+	size := int64(n) * int64(ss) // chainBytes
+	if size > avail {
+		return false
+	}
+	if size > cdfChainLimit {
+		c.s.truncate(TruncCDF)
+		return false
+	}
+	return true
+}
+
+// longChainFits is chainFits for a chain in the file: sector id starts at
+// (id+1)*ss, and every sector must start inside the input.
+func (c *cdfFile) longChainFits(n int) bool {
+	return c.chainFits(n, c.h.secSize(), c.s.inputSize()-1)
+}
+
 // readLongChain is cdf_read_long_sector_chain.
 func (c *cdfFile) readLongChain(sid int32, length uint32) (cdfStream, bool) {
 	ss := c.h.secSize()                          // sectorSize
@@ -329,7 +360,7 @@ func (c *cdfFile) readLongChain(sid int32, length uint32) (cdfStream, bool) {
 	if sid == cdfSecidEOC || length == 0 {
 		return cdfStream{}, false
 	}
-	if n < 0 {
+	if n < 0 || !c.longChainFits(n) {
 		return cdfStream{}, false
 	}
 	st.len = n
@@ -388,7 +419,7 @@ func (c *cdfFile) partialSector(id int32) ([]byte, bool) {
 func (c *cdfFile) readShortChain(sid int32, length uint32) (cdfStream, bool) {
 	ss := c.h.shortSecSize()     // shortSectorSize
 	n := countChain(c.ssat, sid) // chainLength
-	if n < 0 {
+	if n < 0 || !c.chainFits(n, ss, int64(c.sst.size())) {
 		return cdfStream{}, false
 	}
 	st := cdfStream{ss: ss, dirlen: int(length), len: n, tab: c.s.cdfScratch(c.streamSlot, n*ss)} // stream
@@ -419,7 +450,7 @@ func (c *cdfFile) readDir() bool {
 	ss := c.h.secSize() // sectorSize
 	sid := c.h.firstDirectory
 	ns := countChain(c.sat, sid) // sectorCount
-	if ns < 0 {
+	if ns < 0 || !c.longChainFits(ns) {
 		return false
 	}
 	nd := ss / cdfDirectorySz // entriesPerSector
@@ -466,7 +497,7 @@ func (c *cdfFile) readSSAT() bool {
 	ss := c.h.secSize() // sectorSize
 	sid := c.h.firstShortSAT
 	n := countChain(c.sat, sid) // chainLength
-	if n < 0 {
+	if n < 0 || !c.longChainFits(n) {
 		return false
 	}
 	c.ssat = c.s.cdfScratch(1, n*ss)
