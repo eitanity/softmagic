@@ -6,7 +6,6 @@ package softmagic
 import (
 	"context"
 	"encoding/binary"
-	"runtime"
 	"testing"
 )
 
@@ -45,13 +44,11 @@ func cdfChainDoc(n, extra int) []byte {
 	return b
 }
 
-// heapAllocated is the bytes f allocates.
-func heapAllocated(f func()) uint64 {
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
+// allocatedBy is the bytes f allocates.
+func allocatedBy(f func()) uint64 {
+	before := heapAllocated()
 	f()
-	runtime.ReadMemStats(&after)
-	return after.TotalAlloc - before.TotalAlloc
+	return heapAllocated() - before
 }
 
 // TestCDFChainBeyondInput: a chain longer than the input can hold is
@@ -63,7 +60,7 @@ func TestCDFChainBeyondInput(t *testing.T) {
 	for _, c := range []struct{ n, extra int }{{2049, 0}, {4096, 1}, {10000, 0}} { // chainCase
 		data := cdfChainDoc(c.n, c.extra)
 		var r Result
-		alloc := heapAllocated(func() { r = db.Identify(data) })
+		alloc := allocatedBy(func() { r = db.Identify(data) })
 		if r.Description != want {
 			t.Errorf("chain of %d: %q, want %q", c.n, r.Description, want)
 		}

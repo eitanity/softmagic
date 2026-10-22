@@ -273,9 +273,14 @@ func (s *scan) searchCheck(m *record, rec int32) uint64 { // searchRule
 	if slen > maxString {
 		slen = maxString
 	}
-	rng := int(m.strRange())
-	limit := len(region)
-	if rng != 0 && rng+slen < limit {
+	// The range is the reference's uint32, compared in int64; past the
+	// region's length it means the whole region, which searchFlagged also
+	// takes it to mean, so the clamped value fits an int.
+	limit, rng := len(region), len(region) // searchRange
+	if r := int64(m.strRange()); r < int64(len(region)) {
+		rng = int(r)
+	}
+	if rng != 0 && int64(rng)+int64(slen) < int64(limit) {
 		limit = rng + slen
 	}
 	s.noteRead(s.search.start + limit)

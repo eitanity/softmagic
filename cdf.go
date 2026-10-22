@@ -955,9 +955,13 @@ func pad16(v uint64) string {
 
 func isLeap(y int) bool { return y%4 == 0 && (y%100 != 0 || y%400 == 0) }
 
-// cdfDays is cdf_getdays: days from 1601 to the start of year.
+// cdfDays is cdf_getdays: days from 1601 to the start of year. A negative
+// FILETIME gives a year before 1601, which counts no days, as in the
+// reference; the earliest a FILETIME reaches is about 29,000 years back.
 func cdfDays(year int) int {
-	invariant.Check(year >= cdfBaseYear && year <= 9999, "year within the calendar")
+	if !invariant.Check(year > cdfBaseYear-30000 && year <= 9999, "year within the FILETIME range") {
+		return 0
+	}
 	days := 0
 	for y := cdfBaseYear; y < year; y++ {
 		days += 365

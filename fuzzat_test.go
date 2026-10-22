@@ -41,7 +41,8 @@ func FuzzIdentifyAt(f *testing.F) {
 		o := fuzzAtOptions(window, claim, flags)     // options
 		size := int64(len(data)) + int64(claim&3)*97 // past the end: reads there fail
 		ctx := context.Background()
-		r1 := db.IdentifyAt(ctx, bytes.NewReader(data), size, o) // firstResult
+		var r1 Result // firstResult
+		fuzzBounded(t, "IdentifyAt", func() { r1 = db.IdentifyAt(ctx, bytes.NewReader(data), size, o) })
 		if r1.Description == "" || r1.MIME == "" || r1.Charset == "" {
 			t.Fatalf("blank answer with %+v: %+v", o, r1)
 		}

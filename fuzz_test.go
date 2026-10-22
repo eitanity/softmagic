@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime/metrics"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -33,7 +34,8 @@ func FuzzIdentify(f *testing.F) {
 	f.Add([]byte{})
 	f.Add([]byte("\x7fELF"))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		r := db.Identify(data) // result
+		var r Result // result
+		fuzzBounded(t, "Identify", func() { r = db.Identify(data) })
 		if r.Description == "" || r.MIME == "" || r.Charset == "" {
 			t.Fatalf("blank answer for %d bytes: %+v", len(data), r)
 		}
@@ -43,7 +45,10 @@ func FuzzIdentify(f *testing.F) {
 		fuzzEscaped(t, r)
 		// Continue mode, raw on alternate inputs: every list present and
 		// within the output cap, and the first-match answer unchanged.
-		c := db.IdentifyWith(context.Background(), data, Options{Continue: true, Raw: len(data)%2 == 1}) // continued
+		var c Result // continued
+		fuzzBounded(t, "Identify in continue mode", func() {
+			c = db.IdentifyWith(context.Background(), data, Options{Continue: true, Raw: len(data)%2 == 1})
+		})
 		for _, list := range [][]string{c.Continued.Descriptions, c.Continued.MIMEs, c.Continued.Encodings,
 			c.Continued.Extensions, c.Continued.Apple} {
 			if len(list) == 0 || len(strings.Join(list, "\n- ")) > maxOutput+len(c.Charset) {
@@ -54,7 +59,10 @@ func FuzzIdentify(f *testing.F) {
 			fuzzEscaped(t, c)
 		}
 		// SafeText: the same classification, every string printable ASCII.
-		st := db.IdentifyWith(context.Background(), data, Options{SafeText: true, Continue: true}) // safeText
+		var st Result // safeText
+		fuzzBounded(t, "Identify with SafeText", func() {
+			st = db.IdentifyWith(context.Background(), data, Options{SafeText: true, Continue: true})
+		})
 		if st.MIME != r.MIME || st.Phase != r.Phase {
 			t.Fatalf("SafeText changed the classification: %q %q vs %q %q", st.MIME, st.Phase, r.MIME, r.Phase)
 		}
@@ -69,7 +77,8 @@ func FuzzIdentify(f *testing.F) {
 			o := Options{Exclude: Checks(data[0]) | Checks(data[1]&0x0f)<<8, Continue: data[2]&1 != 0,
 				Limits: Limits{Indirect: int(data[2]>>1&3) - 1, Name: int(data[2]>>3&3) - 1,
 					Regex: int(data[3]&0x3f) - 1, Encoding: int(data[3]>>6) * 16, ELFShsize: int(data[3]&7) - 1}}
-			x := db.IdentifyWith(context.Background(), data, o)
+			var x Result
+			fuzzBounded(t, "Identify with exclusions and limits", func() { x = db.IdentifyWith(context.Background(), data, o) })
 			if x.Description == "" || x.MIME == "" || x.Charset == "" {
 				t.Fatalf("blank answer with %+v: %+v", o, x)
 			}
@@ -102,13 +111,18 @@ func FuzzCompile(f *testing.F) {
 		if dump != "" && !strings.HasSuffix(dump, "]\n") {
 			t.Fatalf("a dump line not ended as file -c ends it (error %v): %q", dumpErr, dump)
 		}
-		db, err := compileFS(fstest.MapFS{"f": &fstest.MapFile{Data: []byte(rules)}}, CompileOptions{}) // database
+		var db *Database // database
+		var err error
+		fuzzBounded(t, "Compile", func() {
+			db, err = compileFS(fstest.MapFS{"f": &fstest.MapFile{Data: []byte(rules)}}, CompileOptions{})
+		})
 		if err != nil {
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		r := db.IdentifyWith(ctx, []byte(rules), Options{})
+		var r Result
+		fuzzBounded(t, "Identify with fuzzed rules", func() { r = db.IdentifyWith(ctx, []byte(rules), Options{}) })
 		if r.Description == "" || r.MIME == "" {
 			t.Fatalf("blank answer: %+v", r)
 		}
@@ -134,14 +148,16 @@ func fuzzJoin(t *testing.T, base *Database, rules []byte) {
 	if err != nil {
 		t.Fatalf("marshal of a joined database: %v", err)
 	}
-	loaded, err := Load(data)
+	var loaded *Database
+	fuzzBounded(t, "Load", func() { loaded, err = Load(data) })
 	if err != nil {
 		t.Fatalf("load of a marshalled joined database: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	a := joined.IdentifyWith(ctx, rules, Options{Continue: true})
-	b := loaded.IdentifyWith(ctx, rules, Options{Continue: true})
+	var a, b Result
+	fuzzBounded(t, "Identify with joined rules", func() { a = joined.IdentifyWith(ctx, rules, Options{Continue: true}) })
+	fuzzBounded(t, "Identify with loaded rules", func() { b = loaded.IdentifyWith(ctx, rules, Options{Continue: true}) })
 	if a.Description == "" || a.Description != b.Description || a.MIME != b.MIME {
 		t.Fatalf("joined %q / %q, loaded %q / %q", a.Description, a.MIME, b.Description, b.MIME)
 	}
@@ -181,5 +197,38 @@ func fuzzSafeASCII(t *testing.T, r Result) {
 				t.Fatalf("byte %#x in a SafeText answer: %q", text[i], text)
 			}
 		}
+	}
+}
+
+// fuzzAllocBudget is the most one call may allocate: the largest buffer
+// the library reads into (a CDF chain at cdfChainLimit) with room for the
+// rest of a scan. fuzzTimeBudget is the most one call may take.
+const (
+	fuzzAllocBudget = 64 << 20
+	fuzzTimeBudget  = 2 * time.Second
+)
+
+// heapAllocated is the bytes the process has allocated so far. Small
+// allocations are counted when a cache refills, so the figure lags by a
+// few KiB, which is far below the budget.
+func heapAllocated() uint64 {
+	sample := []metrics.Sample{{Name: "/gc/heap/allocs:bytes"}}
+	metrics.Read(sample)
+	return sample[0].Value.Uint64()
+}
+
+// fuzzBounded runs one call and fails when it allocates more than
+// fuzzAllocBudget or takes longer than fuzzTimeBudget, so a call that
+// returns the right answer at an unbounded cost is still a failure.
+func fuzzBounded(t *testing.T, what string, call func()) {
+	t.Helper()
+	before, start := heapAllocated(), time.Now()
+	call()
+	elapsed, alloc := time.Since(start), heapAllocated()-before
+	if alloc > fuzzAllocBudget {
+		t.Fatalf("%s allocated %d MiB, over the %d MiB budget", what, alloc>>20, fuzzAllocBudget>>20)
+	}
+	if elapsed > fuzzTimeBudget {
+		t.Fatalf("%s took %v, over the %v budget", what, elapsed, fuzzTimeBudget)
 	}
 }

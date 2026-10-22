@@ -226,7 +226,7 @@ func (s *scan) mcopy(m *record, indir bool, win []byte, offset uint32) { // magi
 			s.copyString16(m, win, offset)
 			return
 		case tString, tPString:
-			if r := m.strRange(); r != 0 && int(r) < maxString {
+			if r := int64(m.strRange()); r != 0 && r < maxString {
 				size = int(r)
 			}
 		default:
@@ -250,9 +250,9 @@ func (s *scan) mcopy(m *record, indir bool, win []byte, offset uint32) { // magi
 // setSearchRegion is mcopy's FILE_SEARCH/FILE_DER case.
 func (s *scan) setSearchRegion(win []byte, offset uint32) {
 	invariant.Check(len(win) <= len(s.buf), "region within the buffer")
-	off := int(offset)
-	if off > len(win) {
-		off = len(win)
+	off := len(win) // the offset compared before it becomes an int, which may be 32 bits
+	if int64(offset) < int64(len(win)) {
+		off = int(offset)
 	}
 	s.search = searchState{start: off, length: len(win) - off, offset: off, valid: true}
 }
@@ -268,18 +268,25 @@ func (s *scan) setRegexRegion(m *record, win []byte, offset uint32) { // magicLi
 		return
 	}
 	off := int(offset)
-	linecnt, bytecnt := 0, int(m.strRange())
+	// The counts are the reference's size_t values, held in int64 until
+	// they are clamped to the window.
+	linecnt, bytecnt := int64(0), int64(m.strRange())
 	if m.strFlags()&regexLineCount != 0 {
-		linecnt, bytecnt = int(m.strRange()), int(m.strRange())*80
+		linecnt, bytecnt = int64(m.strRange()), int64(m.strRange())*80
 	}
-	if bytecnt == 0 || bytecnt > nbytes-off {
-		bytecnt = nbytes - off
+	if bytecnt == 0 || bytecnt > int64(nbytes-off) {
+		bytecnt = int64(nbytes - off)
 	}
-	if bytecnt > s.lim.regex {
-		bytecnt = s.lim.regex // the reference's regex_max, applied silently as it does
+	if bytecnt > int64(s.lim.regex) {
+		bytecnt = int64(s.lim.regex) // the reference's regex_max, applied silently as it does
 	}
-	region := win[off : off+bytecnt]
-	last := regexLineLimit(region, linecnt)
+	region := win[off : off+int(bytecnt)]
+	// Every line takes at least a byte, so a count past the region's
+	// length reads all of it, as any larger count would.
+	if linecnt > int64(len(region)) {
+		linecnt = int64(len(region)) + 1
+	}
+	last := regexLineLimit(region, int(linecnt))
 	s.search = searchState{start: off, length: last, offset: off, valid: true}
 	s.noteRead(off + last)
 }

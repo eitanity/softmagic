@@ -476,7 +476,7 @@ func checkMap(db *Database, m *dbMap, expect int32) (int32, error) { // dbMap
 	invariant.Check(expect >= 0, "line index non-negative")
 	for s := 0; s < 2; s++ { // setIndex
 		for _, e := range m.sets[s] { // entry
-			if e.first != expect || e.count <= 0 || int(e.first)+int(e.count) > len(db.recs) ||
+			if e.first != expect || e.count <= 0 || int64(e.first)+int64(e.count) > int64(len(db.recs)) ||
 				db.recs[e.first].contLevel != 0 {
 				return 0, &LoadError{Msg: "entry table inconsistent with records"}
 			}

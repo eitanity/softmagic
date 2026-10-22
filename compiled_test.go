@@ -153,9 +153,11 @@ func FuzzLoad(f *testing.F) {
 	f.Add(good[:4096])
 	f.Add([]byte("SMDB\x01\x00"))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		db, err := Load(data)
+		var db *Database
+		var err error
+		fuzzBounded(t, "Load", func() { db, err = Load(data) })
 		if err == nil {
-			db.Identify(data)
+			fuzzBounded(t, "Identify with a loaded database", func() { db.Identify(data) })
 		}
 	})
 }

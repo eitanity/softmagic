@@ -224,14 +224,14 @@ func simhParse(buf []byte) bool {
 			break
 		}
 	}
-	return st.nt*4 != st.i && st.nr != 0
+	return (st.past || st.nt*4 != st.i) && st.nr != 0
 }
 
 // frame handles one length word: a tapemark, or a data record.
 func (st *simhState) frame(buf []byte, nbytes uint32) (stop, ok bool) {
 	invariant.Check(st.i >= 0 && st.i <= len(buf), "cursor within the input")
 	if nbytes != 0 {
-		return st.record(buf, int(nbytes))
+		return st.record(buf, nbytes)
 	}
 	st.nt++
 	if st.nt == simhTapemarks {
@@ -241,22 +241,29 @@ func (st *simhState) frame(buf []byte, nbytes uint32) (stop, ok bool) {
 	return false, true
 }
 
-// simhState is the parse position and the tapemark and record counts.
+// simhState is the parse position and the tapemark and record counts;
+// past is set when a record runs beyond the input, where the reference's
+// cursor ends up past everything its tapemarks account for.
 type simhState struct {
 	i, nt, nr int
+	past      bool
 }
 
-// record consumes a data record of n bytes and its trailing length; stop
-// is true when the input ends inside it.
-func (st *simhState) record(buf []byte, n int) (stop, ok bool) { // recordLength
-	invariant.Check(n > 0 && st.i >= 0, "record length positive and cursor non-negative")
-	invariant.Check(n >= 0 && st.i >= 0, "record length and cursor non-negative")
-	if n > len(buf) || len(buf)-st.i-4 < n+4 {
-		st.i += 4 + n
+// record consumes a data record of nbytes bytes and its trailing length;
+// stop is true when the input ends inside it. The length is up to
+// 0xffffffff (end of medium before any record), so it is compared in
+// int64 and becomes an int only once it is known to lie within buf.
+func (st *simhState) record(buf []byte, nbytes uint32) (stop, ok bool) {
+	if !invariant.Check(nbytes > 0 && st.i >= 0 && st.i <= len(buf)-4, "record length positive and cursor on a length word") {
+		return false, false
+	}
+	if int64(nbytes)+4 > int64(len(buf)-st.i-4) {
+		st.past = true
 		return true, true
 	}
+	n := int(nbytes) // recordLength
 	cbytes, ok := simhLen(buf, st.i+4+n)
-	if !ok || cbytes != low32(bitsOfInt64(int64(n))) {
+	if !ok || cbytes != nbytes {
 		return false, false
 	}
 	st.i += n + 4
