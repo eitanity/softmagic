@@ -104,6 +104,9 @@ func (s *scan) fileTail(n int) ([]byte, bool) {
 		return nil, false
 	}
 	if cap(s.tailBuf) < len(b) {
+		if !s.reserve(int64(cap(s.tailBuf)), int64(len(b))) {
+			return nil, false
+		}
 		s.tailBuf = make([]byte, len(b))
 	}
 	s.tail = s.tailBuf[:copy(s.tailBuf[:len(b)], b)]

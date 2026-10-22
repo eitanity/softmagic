@@ -17,6 +17,16 @@ const (
 	// DefaultMaxBytes is how much of the input is consulted: the
 	// reference's FILE_BYTES_MAX in file 5.48.
 	DefaultMaxBytes = 7 * 1024 * 1024
+	// DefaultMaxMemory is how many bytes one call's working buffers may
+	// hold beyond the input window, the default of Options.MaxMemory.
+	DefaultMaxMemory = 64 << 20
+	// maxMemoryMax bounds Options.MaxMemory, so a byte count fits an int
+	// on any host.
+	maxMemoryMax = 1 << 30
+	// poolKeepBytes is the most working memory a scan keeps when it goes
+	// back to the pool; one holding more drops its buffers, so a single
+	// large input does not pin them for later calls.
+	poolKeepBytes = 8 << 20
 	// maxLevels bounds continuation depth; Magdir 5.48 reaches 30.
 	maxLevels = 64
 	// maxFrames bounds use/indirect nesting; the reference's MAXR is 50.
@@ -108,6 +118,18 @@ type Options struct {
 	Exclude Checks
 	// Limits are libmagic's other MAGIC_PARAM_* parameters (file -P).
 	Limits Limits
+	// MaxMemory caps the bytes one call's working buffers may hold beyond
+	// the input window: the tables and streams of a Composite Document
+	// File, ELF data read past the window, and the file's tail. 0 means
+	// DefaultMaxMemory, values above 1 GiB are clamped to it, and a
+	// negative value allows none. A read that would need more fails, with
+	// Truncated "memory". The reference has no such limit.
+	MaxMemory int
+}
+
+// maxMemory is MaxMemory resolved: 0 the default, negative 0.
+func (o Options) maxMemory() int64 {
+	return int64(limitValue(o.MaxMemory, DefaultMaxMemory, maxMemoryMax))
 }
 
 // Limits are libmagic's MAGIC_PARAM_* parameters (file -P) other than the
@@ -245,6 +267,8 @@ type scan struct {
 	tail             []byte    // tailBuf's part read for this call
 	cdfbuf           [4][]byte // the CDF built-in's tables and streams, grown once
 	cdfdir           []cdfDir
+	held             int64 // capacity of srcbuf, tailBuf, cdfbuf and cdfdir, in bytes
+	memLimit         int64 // Options.MaxMemory resolved
 	srcSize          int64
 	frames           [maxFrames]frame
 	lim              limits
@@ -322,7 +346,30 @@ func (sp *scanPool) get(db *Database, ctx context.Context, buf []byte, o Options
 
 func (sp *scanPool) put(s *scan) {
 	s.db, s.buf, s.savedBuf, s.ctx, s.src = nil, nil, nil, nil, nil
+	if s.held > poolKeepBytes {
+		s.srcbuf, s.tailBuf, s.tail, s.cdfdir = nil, nil, nil, nil
+		s.cdfbuf = [4][]byte{}
+		s.held = 0
+	}
+	if cap(s.inbuf) > poolKeepBytes {
+		s.inbuf = nil
+	}
 	sp.p.Put(s)
+}
+
+// reserve accounts for growing one of the scan's kept buffers from have
+// to want bytes. It is false, with Truncated "memory", when the buffers
+// would then hold more than the call's budget.
+func (s *scan) reserve(have, want int64) bool {
+	if want <= have {
+		return true
+	}
+	if s.held-have+want > s.memLimit {
+		s.truncate(TruncMemory)
+		return false
+	}
+	s.held += want - have
+	return true
 }
 
 // reset zeroes the per-call fields; the scratch buffers are kept.
@@ -349,6 +396,7 @@ func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) {
 	s.safe = o.SafeText
 	s.exclude = o.Exclude
 	s.lim = o.Limits.resolve()
+	s.memLimit = o.maxMemory()
 	s.abort, s.elfStart, s.independent = "", -1, false
 	s.tail, s.tailRead = nil, false
 	s.cont, s.wantCont, s.firstline, s.nseps = false, o.Continue, true, 0
@@ -391,17 +439,23 @@ func (s *scan) rxScratch(n int) []byte { // size
 }
 
 // cdfScratch returns the i-th CDF buffer with room for n bytes, grown
-// once per pooled scan, not per call.
-func (s *scan) cdfScratch(i, n int) []byte {
-	invariant.Check(i >= 0 && i < len(s.cdfbuf) && n >= 0, "scratch index and size")
+// once per pooled scan, not per call; false when the memory budget does
+// not allow it.
+func (s *scan) cdfScratch(i, n int) ([]byte, bool) {
+	if !invariant.Check(i >= 0 && i < len(s.cdfbuf) && n >= 0, "scratch index and size") {
+		return nil, false
+	}
 	if cap(s.cdfbuf[i]) < n {
+		if !s.reserve(int64(cap(s.cdfbuf[i])), int64(n)) {
+			return nil, false
+		}
 		s.cdfbuf[i] = make([]byte, n)
 	}
 	b := s.cdfbuf[i][:n]
 	for k := range b {
 		b[k] = 0
 	}
-	return b
+	return b, true
 }
 
 // truncate records the first limit that fired (later ones do not replace it).

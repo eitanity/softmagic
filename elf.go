@@ -590,7 +590,10 @@ func (s *scan) readAt(off int64, n int) ([]byte, bool) { // length
 		s.oobHit = true
 		return nil, false
 	}
-	buf := s.srcScratch(n)
+	buf, ok := s.srcScratch(n)
+	if !ok {
+		return nil, false
+	}
 	if _, err := s.src.ReadAt(buf, off); err != nil {
 		return nil, false
 	}
@@ -614,10 +617,14 @@ func (s *scan) readUpTo(off int64, n int) ([]byte, bool) { // maxLength
 	return s.readAt(off, n)
 }
 
-// srcScratch is the buffer for reads beyond the window, grown once.
-func (s *scan) srcScratch(n int) []byte {
+// srcScratch is the buffer for reads beyond the window, grown once;
+// false when the memory budget does not allow it.
+func (s *scan) srcScratch(n int) ([]byte, bool) {
 	if cap(s.srcbuf) < n {
+		if !s.reserve(int64(cap(s.srcbuf)), int64(n)) {
+			return nil, false
+		}
 		s.srcbuf = make([]byte, n)
 	}
-	return s.srcbuf[:n]
+	return s.srcbuf[:n], true
 }

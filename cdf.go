@@ -41,6 +41,10 @@ const (
 	cdfChainLimit = cdfLoopLimit * 4096
 )
 
+// cdfDirBytes is what the memory budget charges per directory entry: a
+// cdfDir's size on a 64-bit host, at least its size on any host.
+const cdfDirBytes = 96
+
 // Directory entry types.
 const (
 	cdfDirEmpty       = 0
@@ -199,7 +203,9 @@ func (c *cdfFile) readSAT() bool {
 	if !ok {
 		return false
 	}
-	c.sat = c.s.cdfScratch(0, satLen*ss)
+	if c.sat, ok = c.s.cdfScratch(0, satLen*ss); !ok {
+		return false
+	}
 	if !c.copyHeaderSAT() {
 		return false
 	}
@@ -364,7 +370,10 @@ func (c *cdfFile) readLongChain(sid int32, length uint32) (cdfStream, bool) {
 		return cdfStream{}, false
 	}
 	st.len = n
-	st.tab = c.s.cdfScratch(c.streamSlot, n*ss)
+	var ok bool
+	if st.tab, ok = c.s.cdfScratch(c.streamSlot, n*ss); !ok {
+		return cdfStream{}, false
+	}
 	for i := 0; i < cdfLoopLimit && sid >= 0; i++ {
 		if i >= n {
 			return cdfStream{}, false
@@ -422,7 +431,11 @@ func (c *cdfFile) readShortChain(sid int32, length uint32) (cdfStream, bool) {
 	if n < 0 || !c.chainFits(n, ss, int64(c.sst.size())) {
 		return cdfStream{}, false
 	}
-	st := cdfStream{ss: ss, dirlen: int(length), len: n, tab: c.s.cdfScratch(c.streamSlot, n*ss)} // stream
+	tab, ok := c.s.cdfScratch(c.streamSlot, n*ss)
+	if !ok {
+		return cdfStream{}, false
+	}
+	st := cdfStream{ss: ss, dirlen: int(length), len: n, tab: tab} // stream
 	for i := 0; i < cdfLoopLimit && sid >= 0; i++ {
 		pos := int64(sid) * int64(ss)
 		if i >= n || pos+int64(ss) > int64(c.sst.size()) {
@@ -458,6 +471,9 @@ func (c *cdfFile) readDir() bool {
 		return false
 	}
 	if cap(c.s.cdfdir) < ns*nd {
+		if !c.s.reserve(int64(cap(c.s.cdfdir))*cdfDirBytes, int64(ns*nd)*cdfDirBytes) {
+			return false
+		}
 		c.s.cdfdir = make([]cdfDir, ns*nd)
 	}
 	c.dir = c.s.cdfdir[:ns*nd]
@@ -500,7 +516,10 @@ func (c *cdfFile) readSSAT() bool {
 	if n < 0 || !c.longChainFits(n) {
 		return false
 	}
-	c.ssat = c.s.cdfScratch(1, n*ss)
+	var ok bool
+	if c.ssat, ok = c.s.cdfScratch(1, n*ss); !ok {
+		return false
+	}
 	for i := 0; i < cdfLoopLimit && sid >= 0; i++ {
 		sec, ok := c.readSector(sid)
 		if i >= n || !ok {

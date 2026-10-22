@@ -81,3 +81,66 @@ func TestCDFChainLimit(t *testing.T) {
 		t.Errorf("chain of %d MiB sectors: Truncated %q, want %q (%q)", n, r.Examined.Truncated, TruncCDF, r.Description)
 	}
 }
+
+// TestMemoryBudget: a stream the input does hold but that is larger than
+// Options.MaxMemory is refused with Truncated "memory" and the answer the
+// reference gives when that read fails; the default budget reads it.
+func TestMemoryBudget(t *testing.T) {
+	db := compileMagdir(t) // database
+	data := cdfChainDoc(10, 10)
+	small := db.IdentifyWith(context.Background(), data, Options{MaxBytes: len(data), MaxMemory: 4 << 20})
+	if small.Examined.Truncated != TruncMemory {
+		t.Errorf("4 MiB budget: Truncated %q, want %q (%q)", small.Examined.Truncated, TruncMemory, small.Description)
+	}
+	if want := "Composite Document File V2 Document, Can't read SSAT"; small.Description != want {
+		t.Errorf("4 MiB budget: %q, want %q", small.Description, want)
+	}
+	full := db.IdentifyWith(context.Background(), data, Options{MaxBytes: len(data)})
+	if full.Examined.Truncated == TruncMemory {
+		t.Errorf("default budget refused a 10 MiB stream: %q", full.Description)
+	}
+}
+
+// TestPoolDropsLargeBuffers: a scan holding more than poolKeepBytes goes
+// back to the pool without its buffers.
+func TestPoolDropsLargeBuffers(t *testing.T) {
+	sp := newScanPool()
+	s := &scan{srcbuf: make([]byte, 1<<20), inbuf: make([]byte, poolKeepBytes+1), held: poolKeepBytes + 1}
+	s.cdfbuf[0] = make([]byte, 1<<20)
+	sp.put(s)
+	if s.srcbuf != nil || s.cdfbuf[0] != nil || s.inbuf != nil || s.held != 0 {
+		t.Errorf("buffers kept: src %d, cdf %d, in %d, held %d", cap(s.srcbuf), cap(s.cdfbuf[0]), cap(s.inbuf), s.held)
+	}
+	k := &scan{srcbuf: make([]byte, 1<<20), held: 1 << 20}
+	sp.put(k)
+	if k.srcbuf == nil || k.held != 1<<20 {
+		t.Error("a scan within poolKeepBytes lost its buffers")
+	}
+}
+
+// TestCDFDirBytes: the budget's charge per directory entry is at least
+// what an entry takes (92 bytes on 32-bit hosts, 96 on 64-bit ones), and
+// not much more.
+func TestCDFDirBytes(t *testing.T) {
+	const n = 1 << 12
+	var dirs []cdfDir
+	got := allocatedBy(func() { dirs = make([]cdfDir, n) })
+	if len(dirs) != n || got > n*cdfDirBytes+8192 || got < n*(cdfDirBytes-8) {
+		t.Errorf("%d entries allocated %d bytes, charged %d", n, got, n*cdfDirBytes)
+	}
+}
+
+// TestCatalogNamesBounded: a catalog of two-byte records, too short to
+// hold a name, reserves room for the names that can fit, not one per
+// record (which was 8 MiB of string headers for this 1 MiB catalog).
+func TestCatalogNamesBounded(t *testing.T) {
+	tab := make([]byte, 1<<20)
+	for i := 0; i < len(tab); i += 2 {
+		tab[i] = 2
+	}
+	st := cdfStream{tab: tab, ss: 512, len: len(tab) / 512}
+	got := allocatedBy(func() { unpackCatalog(&st) })
+	if got > 2<<20 {
+		t.Errorf("a 1 MiB catalog of two-byte records allocated %d MiB", got>>20)
+	}
+}

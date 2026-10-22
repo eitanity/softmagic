@@ -361,7 +361,9 @@ func unpackCatalog(st *cdfStream) ([]string, bool) {
 		return nil, false
 	}
 	nr--
-	names := make([]string, 0, nr)
+	// Only a record of 14 bytes or more holds a name, which bounds how
+	// many there can be by the catalog's size rather than its count.
+	names := make([]string, 0, min(nr, len(tab)/14))
 	b := 0 // recordOff
 	for i := 0; i < nr && b <= len(tab)-16; i++ {
 		reclen := int(binary.LittleEndian.Uint16(tab[b:]))

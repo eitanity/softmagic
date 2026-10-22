@@ -170,6 +170,10 @@ const (
 	// declare one); the document is described as one whose chain could
 	// not be read.
 	TruncCDF = "cdf"
+	// TruncMemory is Options.MaxMemory: a read past the window that would
+	// have held more than the budget failed, and the answer is the one
+	// the reference gives when that read fails.
+	TruncMemory = "memory"
 	// TruncIndirect, TruncName and TruncELF are the hard limits of
 	// Options.Limits: the reference stops with an error, and so does the
 	// output mode that reached one (see Result.Failures).
