@@ -1,0 +1,46 @@
+# Once a week, or on demand: the tests on 386 and on the big-endian and
+# 64-bit ARM architectures, and every fuzz target on amd64 and 386, with and
+# without assertions, for five minutes each.
+name: weekly
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  architectures:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - name: 386, assertions
+        run: GOARCH=386 go test -tags softmagic_assert -count=1 ./...
+      - name: s390x, ppc64, mips and arm64 under qemu, assertions
+        run: make emulated EMULATED="s390x ppc64 mips arm64"
+
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make fuzz FUZZTIME=5m
+      - name: keep a failing input
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-failures
+          path: testdata/fuzz

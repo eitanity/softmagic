@@ -1,4 +1,4 @@
-.PHONY: build test lint vet fuzz list generate wctype
+.PHONY: build test lint vet fuzz cross emulated list generate wctype
 
 # Every test, fuzz and CI run is built with the assertion tag, so a failed
 # invariant panics instead of being recorded as Truncated "invariant".
@@ -35,6 +35,21 @@ fuzz:
 			GOARCH=$$arch go test -tags $$tags -run=NONE -fuzz="^$$target\$$" \
 				-fuzztime=$(FUZZTIME) -parallel=8 .; \
 		done; done; done
+
+# go vet for every platform the library is built for, without cgo.
+CROSS := linux/386 linux/arm linux/arm64 linux/ppc64le linux/s390x linux/mips linux/riscv64 \
+	darwin/amd64 darwin/arm64 freebsd/amd64 openbsd/amd64 windows/amd64 windows/arm64
+cross:
+	@set -e; for p in $(CROSS); do echo "== $$p"; \
+		CGO_ENABLED=0 GOOS=$${p%/*} GOARCH=$${p#*/} go vet $(TAGS) ./...; done
+
+# The tests on other architectures under qemu-user (binfmt registered):
+# big-endian (s390x, ppc64, mips) and ARM. -short skips the timing tests,
+# which measure the emulator rather than the code.
+EMULATED := s390x ppc64 mips arm arm64
+emulated:
+	@set -e; for arch in $(EMULATED); do echo "== $$arch"; \
+		GOARCH=$$arch go test $(TAGS) -short -count=1 ./...; done
 
 # Regenerates the embedded compiled database from the vendored Magdir.
 generate:
