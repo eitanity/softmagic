@@ -84,7 +84,10 @@ func cvtFlipFloat(t fileType) fileType { // fileType
 // reference stores it in its union, and applies the rule's mask operator.
 // False is the reference's "zerodivide/overflow" refusal.
 func (s *scan) mconvert(m *record, flip bool) bool { // magicLine
-	invariant.Check(m.typ != tInvalid, "line has a type")
+	if !invariant.Check(m.typ != tInvalid, "line has a type") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	v := s.value[:]                       // value
 	switch t := cvtFlip(m.typ, flip); t { // fileType
 	case tByte:
@@ -116,7 +119,10 @@ func (s *scan) mconvert(m *record, flip bool) bool { // magicLine
 // mconvertFloat handles the float and double types and the types that
 // need no conversion.
 func (s *scan) mconvertFloat(m *record, t fileType) bool { // magicLine
-	invariant.Check(t != tByte && !isWidth2(t) && !isWidth4(t) && !isWidth8(t) || isFloatType(t) || isDoubleType(t), "type without an integer conversion")
+	if !invariant.Check(t != tByte && !isWidth2(t) && !isWidth4(t) && !isWidth8(t) || isFloatType(t) || isDoubleType(t), "type without an integer conversion") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	v := s.value[:] // value
 	switch t {
 	case tFloat:
@@ -155,7 +161,10 @@ func widthMask(bits int) uint64 {
 // values and truncated to the width, which is what the C casts do; the
 // signed division and modulo cases use the sign-extended operands.
 func (s *scan) cvtInt(m *record, val uint64, bits int) bool { // magicLine
-	invariant.Check(bits == 8 || bits == 16 || bits == 32 || bits == 64, "integer width")
+	if !invariant.Check(bits == 8 || bits == 16 || bits == 32 || bits == 64, "integer width") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	mask := widthMask(bits)
 	unsigned := m.flag&flagUnsigned != 0
 	num := m.maskOrStr & mask
@@ -178,7 +187,9 @@ func (s *scan) cvtInt(m *record, val uint64, bits int) bool { // magicLine
 // applyIntOp is one DO_CVT1 case. Division and modulo refuse a zero
 // divisor and the signed MIN/-1 overflow, as the reference does.
 func applyIntOp(op uint8, val, num uint64, bits int, unsigned bool) (uint64, bool) { // operator
-	invariant.Check(op <= opModulo, "operator in range")
+	if !invariant.Check(op <= opModulo, "operator in range") {
+		return 0, false
+	}
 	switch op {
 	case opAnd:
 		return val & num, true
@@ -200,8 +211,7 @@ func applyIntOp(op uint8, val, num uint64, bits int, unsigned bool) (uint64, boo
 }
 
 func divMod(op uint8, val, num uint64, bits int, unsigned bool) (uint64, bool) { // operator
-	invariant.Check(op == opDivide || op == opModulo, "division operator")
-	if num == 0 {
+	if !invariant.Check(op == opDivide || op == opModulo, "division operator") || num == 0 {
 		return 0, false
 	}
 	if unsigned {
@@ -222,7 +232,10 @@ func divMod(op uint8, val, num uint64, bits int, unsigned bool) (uint64, bool) {
 
 // cvtFloat is cvt_float over a 32-bit image.
 func (s *scan) cvtFloat(m *record, bits uint32) bool {
-	invariant.Check(m.maskOp&opsMask <= opModulo, "operator in range")
+	if !invariant.Check(m.maskOp&opsMask <= opModulo, "operator in range") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	f := float64(math.Float32frombits(bits)) // floatValue
 	if m.maskOrStr != 0 {
 		g, ok := applyFloatOp(m.maskOp&opsMask, f, float64(float32(m.maskOrStr)))
@@ -237,7 +250,10 @@ func (s *scan) cvtFloat(m *record, bits uint32) bool {
 
 // cvtDouble is cvt_double over a 64-bit image.
 func (s *scan) cvtDouble(m *record, bits uint64) bool {
-	invariant.Check(m.maskOp&opsMask <= opModulo, "operator in range")
+	if !invariant.Check(m.maskOp&opsMask <= opModulo, "operator in range") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	f := math.Float64frombits(bits) // doubleValue
 	if m.maskOrStr != 0 {
 		g, ok := applyFloatOp(m.maskOp&opsMask, f, float64(m.maskOrStr))
@@ -272,7 +288,10 @@ func applyFloatOp(op uint8, f, num float64) (float64, bool) { // floatValue
 // cvtPString is mconvert's FILE_PSTRING case: shift the string over its
 // length prefix and NUL-terminate it.
 func (s *scan) cvtPString(m *record) bool {
-	invariant.Check(m.typ == tPString, "pstring line")
+	if !invariant.Check(m.typ == tPString, "pstring line") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	flags := m.strFlags()
 	sz := pstringLengthSize(flags) // lengthSize
 	if sz == 0 {
@@ -297,7 +316,9 @@ func (s *scan) cvtPString(m *record) bool {
 // pstringLength is file_pstring_get_length: the length prefix as the
 // flags describe it, minus its own size when the flag says so.
 func pstringLength(flags uint32, b []byte) int { // lengthPrefix
-	invariant.Check(len(b) >= 4, "length prefix readable")
+	if !invariant.Check(len(b) >= 4, "length prefix readable") {
+		return -1
+	}
 	var n int // stringLength
 	switch flags & pstringLen {
 	case pstring1LE:

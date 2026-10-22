@@ -109,3 +109,17 @@ func TestLoadRefusesBadRegex(t *testing.T) {
 		t.Error("Load accepted a regex RE2 rejects")
 	}
 }
+
+// TestMarshalRefusesLongFields: a field longer than its 16-bit length
+// prefix is refused by Marshal, rather than written as a database Load
+// then refuses.
+func TestMarshalRefusesLongFields(t *testing.T) {
+	db, err := CompileSources("h", []Source{{Name: "x", Data: []byte("0 string A a\n")}},
+		CompileOptions{SourceDir: string(make([]byte, 1<<16+10))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Marshal(); err == nil {
+		t.Error("Marshal accepted a 65546-byte SourceDir")
+	}
+}

@@ -445,6 +445,37 @@ func endsInReturn(b *ast.BlockStmt) bool {
 	return ok
 }
 
+// TestRule5ChecksActedOn rejects an invariant.Check whose result is
+// discarded. In a release build Check only returns its condition, so a
+// check written as a statement bounds nothing: the caller must return,
+// refuse or truncate when it is false.
+func TestRule5ChecksActedOn(t *testing.T) {
+	fset, pkgs := loadModule(t)
+	for _, p := range pkgs {
+		if strings.HasSuffix(p.path, "/internal/invariant") {
+			continue
+		}
+		for _, f := range p.files {
+			ast.Inspect(f, func(n ast.Node) bool {
+				es, ok := n.(*ast.ExprStmt) // exprStmt
+				if !ok {
+					return true
+				}
+				call, isCall := es.X.(*ast.CallExpr)
+				if !isCall {
+					return true
+				}
+				if sel, isSel := call.Fun.(*ast.SelectorExpr); isSel && sel.Sel.Name == "Check" {
+					if id, isID := sel.X.(*ast.Ident); isID && id.Name == "invariant" {
+						t.Errorf("rule 5: invariant.Check result discarded at %s", fset.Position(es.Pos()))
+					}
+				}
+				return true
+			})
+		}
+	}
+}
+
 // TestRule6NoMutableGlobals forbids init functions and any assignment to a
 // package-level variable outside its declaration.
 func TestRule6NoMutableGlobals(t *testing.T) {

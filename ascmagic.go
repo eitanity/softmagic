@@ -22,7 +22,9 @@ func trimNuls(buf []byte) int {
 	n := len(buf)
 	for ; n > 1 && buf[n-1] == 0; n-- {
 	}
-	invariant.Check(n <= len(buf) && (n >= 1 || len(buf) == 0), "trim keeps at least one byte")
+	if !invariant.Check(n <= len(buf) && (n >= 1 || len(buf) == 0), "trim keeps at least one byte") {
+		return 0
+	}
 	return n
 }
 
@@ -31,8 +33,10 @@ func trimNuls(buf []byte) int {
 // returns whether anything was printed. looksText is the classification
 // of the untrimmed window, passed to the matcher as the reference does.
 func (s *scan) textPhase(looksText bool, e encoding) bool { // encoding
-	invariant.Check(s.savedBuf == nil, "text phase starts on the input window")
-	invariant.Check(e.n <= len(s.buf), "classified length within the input")
+	if !invariant.Check(s.savedBuf == nil && e.n <= len(s.buf), "text phase starts on the classified input window") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	n := trimNuls(s.buf) // textLength
 	if n&1 != 0 && len(s.buf)&1 == 0 {
 		n++ // keep the last UTF-16 unit whole
@@ -48,7 +52,6 @@ func (s *scan) textPhase(looksText bool, e encoding) bool { // encoding
 		return false // file_ascmagic_with_encoding trims again and gives up at one byte
 	}
 	utf8Len := s.encodeWindow(win, e)
-	invariant.Check(utf8Len <= len(s.utf8), "re-encoding fits the scratch")
 	softFound := false
 	if utf8Len > 0 {
 		softFound = s.softmagic(s.utf8[:utf8Len], flagTextTest, looksText)
@@ -81,7 +84,10 @@ func (s *scan) outputOrAnnotated() bool {
 // scratch buffer and returns the length, 0 when a character cannot be
 // encoded (the reference then skips the text rules).
 func (s *scan) encodeWindow(win []byte, e encoding) int {
-	invariant.Check(e.n <= len(win), "classified length within the window")
+	if !invariant.Check(e.n <= len(win), "classified length within the window") {
+		s.truncate(TruncInvariant)
+		return 0
+	}
 	d := newTextDecoder(win, e)
 	dst := s.utf8Scratch(6 * e.n)
 	n := 0                                      // encodedLength
@@ -96,13 +102,19 @@ func (s *scan) encodeWindow(win []byte, e encoding) int {
 		}
 		n += k
 	}
+	if !invariant.Check(n <= len(s.utf8), "re-encoding fits the scratch") {
+		s.truncate(TruncInvariant)
+		return 0
+	}
 	return n
 }
 
 // scanLines is the line-terminator and long-line scan over the decoded
 // characters.
 func scanLines(win []byte, e encoding) textStats {
-	invariant.Check(e.n <= len(win), "classified length within the window")
+	if !invariant.Check(e.n <= len(win), "classified length within the window") {
+		return textStats{}
+	}
 	var st textStats // textStats
 	d := newTextDecoder(win, e)
 	seenCR := false
@@ -126,7 +138,9 @@ func scanLines(win []byte, e encoding) textStats {
 // noteChar counts one character's terminator and control-character
 // contribution and returns whether it was a CR.
 func (st *textStats) noteChar(c uint32, i int64, seenCR bool, lastLineEnd *int64) bool { // char
-	invariant.Check(i >= 0, "character index non-negative")
+	if !invariant.Check(i >= 0, "character index non-negative") {
+		return false
+	}
 	switch {
 	case c == '\n':
 		if seenCR {
@@ -155,8 +169,14 @@ func (st *textStats) noteChar(c uint32, i int64, seenCR bool, lastLineEnd *int64
 // describeText prints the encoding, the text type and the line details,
 // after rewriting a rule description that ended in " text".
 func (s *scan) describeText(e encoding, st textStats) { // encoding
-	invariant.Check(s.outLen <= maxOutput, "output length within cap")
-	invariant.Check(e.isText(), "describing text")
+	if !invariant.Check(s.outLen <= maxOutput, "output length within cap") {
+		s.truncate(TruncInvariant)
+		return
+	}
+	if !invariant.Check(e.isText(), "describing text") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	executable := false
 	if s.outLen > 0 {
 		switch {
@@ -188,7 +208,10 @@ func (s *scan) describeText(e encoding, st textStats) { // encoding
 
 // replaceSuffix is file_replace for an end-anchored literal pattern.
 func (s *scan) replaceSuffix(suffix, rep string) bool {
-	invariant.Check(len(suffix) > 0, "suffix given")
+	if !invariant.Check(len(suffix) > 0, "suffix given") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	if s.outLen < len(suffix) || string(s.out[s.outLen-len(suffix):s.outLen]) != suffix {
 		return false
 	}
@@ -199,7 +222,10 @@ func (s *scan) replaceSuffix(suffix, rep string) bool {
 
 // describeTerminators reports line terminators other than LF, or none.
 func (s *scan) describeTerminators(st textStats) { // textStats
-	invariant.Check(st.crlf >= 0 && st.cr >= 0 && st.lf >= 0 && st.nel >= 0, "counts non-negative")
+	if !invariant.Check(st.crlf >= 0 && st.cr >= 0 && st.lf >= 0 && st.nel >= 0, "counts non-negative") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	none := st.crlf == 0 && st.cr == 0 && st.nel == 0 && st.lf == 0
 	if !none && st.crlf == 0 && st.cr == 0 && st.nel == 0 {
 		return
@@ -216,7 +242,10 @@ func (s *scan) describeTerminators(st textStats) { // textStats
 // listTerminators prints the kinds present, comma-separated as the
 // reference does.
 func (s *scan) listTerminators(st textStats) {
-	invariant.Check(st.crlf+st.cr+st.lf+st.nel > 0, "a terminator kind is present")
+	if !invariant.Check(st.crlf+st.cr+st.lf+st.nel > 0, "a terminator kind is present") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	kinds := [4]int{st.crlf, st.cr, st.lf, st.nel}
 	names := [4]string{" CRLF", " CR", " LF", " NEL"}
 	for k := 0; k < 4; k++ {

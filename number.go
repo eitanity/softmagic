@@ -30,8 +30,10 @@ func cIsPrint(c byte) bool { return c >= 0x20 && c <= 0x7e }
 
 // eatSpace is apprentice.c's EATAB: skip ASCII whitespace from i.
 func eatSpace(s []byte, i int) int {
-	invariant.Check(i >= 0, "cursor non-negative")
-	invariant.Check(i >= 0 && i <= len(s), "cursor within the text")
+	if !invariant.Check(i >= 0, "cursor non-negative") ||
+		!invariant.Check(i <= len(s), "cursor within the text") {
+		return len(s)
+	}
 	for ; i < len(s) && cIsSpace(s[i]); i++ {
 	}
 	return i
@@ -53,7 +55,9 @@ func hexToInt(c byte) int { // hexChar
 
 // digitValue is the value of c in the given base and whether c is a digit.
 func digitValue(c byte, base uint64) (uint64, bool) {
-	invariant.Check(base >= 2 && base <= 16, "digit base")
+	if !invariant.Check(base >= 2 && base <= 16, "digit base") {
+		return 0, false
+	}
 	v := hexToInt(c)
 	if v < 0 || v > 15 || uint64(v) >= base {
 		return 0, false
@@ -68,7 +72,9 @@ func digitValue(c byte, base uint64) (uint64, bool) {
 // of the magnitude reports ok=false, which the callers treat as a parse
 // error (the reference leaves the cursor in place on ERANGE).
 func unsignedNumber(s []byte, i int, base uint64) (mag uint64, neg bool, end int, ok bool) { // text
-	invariant.Check(base == 0 || base == 8 || base == 10 || base == 16, "supported base")
+	if !invariant.Check(base == 0 || base == 8 || base == 10 || base == 16, "supported base") {
+		return 0, false, i, false
+	}
 	i = eatSpace(s, i)
 	if i < len(s) && (s[i] == '+' || s[i] == '-') {
 		neg = s[i] == '-'
@@ -119,8 +125,10 @@ func at(s []byte, i int) byte {
 // strtoull returns the two's-complement wrap of a negative magnitude, as C's
 // strtoull does.
 func strtoull(s []byte, i int, base uint64) (v uint64, end int, ok bool) {
-	invariant.Check(i >= 0, "cursor non-negative")
-	invariant.Check(i <= len(s), "cursor within the text")
+	if !invariant.Check(i >= 0, "cursor non-negative") ||
+		!invariant.Check(i <= len(s), "cursor within the text") {
+		return 0, len(s), false
+	}
 	mag, neg, end, ok := unsignedNumber(s, i, base)
 	if !ok {
 		return 0, end, false
@@ -134,8 +142,10 @@ func strtoull(s []byte, i int, base uint64) (v uint64, end int, ok bool) {
 // strtol returns the signed value clamped to the int64 range, as C's strtol
 // does on a 64-bit long.
 func strtol(s []byte, i int, base uint64) (v int64, end int, ok bool) {
-	invariant.Check(i >= 0, "cursor non-negative")
-	invariant.Check(i <= len(s), "cursor within the text")
+	if !invariant.Check(i >= 0, "cursor non-negative") ||
+		!invariant.Check(i <= len(s), "cursor within the text") {
+		return 0, len(s), false
+	}
 	mag, neg, end, ok := unsignedNumber(s, i, base)
 	if !ok {
 		return 0, end, false
@@ -154,8 +164,10 @@ func strtol(s []byte, i int, base uint64) (v int64, end int, ok bool) {
 
 // eatSize is apprentice.c's eatsize: skip a C integer suffix such as UL.
 func eatSize(s []byte, i int) int { // cursor
-	invariant.Check(i >= 0, "cursor non-negative")
-	invariant.Check(i <= len(s), "cursor within the text")
+	if !invariant.Check(i >= 0, "cursor non-negative") ||
+		!invariant.Check(i <= len(s), "cursor within the text") {
+		return len(s)
+	}
 	if lower(at(s, i)) == 'u' {
 		i++
 	}

@@ -77,7 +77,9 @@ func Append(base, extra *softmagic.Database) (*softmagic.Database, error) {
 // name, a newline and its text, in order.
 func Hash(srcs []softmagic.Source) string {
 	h := sha256.New() // hasher
-	invariant.Check(h.Size() == sha256.Size, "SHA-256 digest")
+	if !invariant.Check(h.Size() == sha256.Size, "SHA-256 digest") {
+		return ""
+	}
 	for _, src := range srcs {
 		h.Write([]byte(src.Name))
 		h.Write([]byte{'\n'})
@@ -88,7 +90,9 @@ func Hash(srcs []softmagic.Source) string {
 
 // joinHash is the identity of two databases searched in order.
 func joinHash(a, b string) string {
-	invariant.Check(a != "" && b != "", "both hashes given")
+	if !invariant.Check(a != "" && b != "", "both hashes given") {
+		return ""
+	}
 	sum := sha256.Sum256([]byte(a + "\n" + b))
 	return hex.EncodeToString(sum[:])
 }
@@ -108,6 +112,8 @@ func listRuleFiles(fsys fs.FS) ([]string, error) {
 		names = append(names, d.Name())
 	}
 	sort.Strings(names)
-	invariant.Check(sort.StringsAreSorted(names), "names sorted")
+	if !invariant.Check(sort.StringsAreSorted(names), "names sorted") {
+		return nil, &softmagic.CompileError{File: ".", Line: 0, Msg: "rule file names not sorted"}
+	}
 	return names, nil
 }

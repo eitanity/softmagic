@@ -335,12 +335,15 @@ func newScanPool() *scanPool {
 }
 
 func (sp *scanPool) get(db *Database, ctx context.Context, buf []byte, o Options) *scan { // database
-	invariant.Check(db != nil, "scan for a database")
+	hasDB := invariant.Check(db != nil, "scan for a database")
 	s, ok := sp.p.Get().(*scan)
 	if !invariant.Check(ok && s != nil, "pool holds scans") {
 		s = &scan{}
 	}
 	s.reset(db, ctx, buf, o)
+	if !hasDB {
+		s.truncate(TruncInvariant)
+	}
 	return s
 }
 
@@ -374,8 +377,10 @@ func (s *scan) reserve(have, want int64) bool {
 
 // reset zeroes the per-call fields; the scratch buffers are kept.
 func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) { // options
-	invariant.Check(db != nil, "reset with a database")
-	invariant.Check(o.MaxBytes <= 0 || len(buf) <= o.MaxBytes, "window within MaxBytes")
+	bad := !invariant.Check(db != nil, "reset with a database")
+	if !invariant.Check(o.MaxBytes <= 0 || len(buf) <= o.MaxBytes, "window within MaxBytes") {
+		buf, bad = buf[:o.MaxBytes], true
+	}
 	s.db, s.buf, s.ctx = db, buf, ctx
 	s.nframes, s.offset, s.eoffset = 0, 0, 0
 	s.search = searchState{}
@@ -409,13 +414,19 @@ func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) {
 	for i := range s.levels {
 		s.levels[i] = levelInfo{}
 	}
+	if bad {
+		s.truncate(TruncInvariant) // after the reset, which clears it
+	}
 }
 
 // utf8Scratch returns the UTF-8 re-encoding buffer with room for n bytes.
 // A pooled scan grows its buffers once, to a cap, and keeps them:
 // allocation happens at initialisation, not per call in steady state.
 func (s *scan) utf8Scratch(n int) []byte { // size
-	invariant.Check(n >= 0, "size non-negative")
+	if !invariant.Check(n >= 0, "size non-negative") {
+		s.truncate(TruncInvariant)
+		return nil
+	}
 	if n > utf8ScratchSize {
 		n = utf8ScratchSize
 	}
@@ -428,7 +439,10 @@ func (s *scan) utf8Scratch(n int) []byte { // size
 // rxScratch returns the regex transcoding and printing buffer with room
 // for n bytes.
 func (s *scan) rxScratch(n int) []byte { // size
-	invariant.Check(n >= 0, "size non-negative")
+	if !invariant.Check(n >= 0, "size non-negative") {
+		s.truncate(TruncInvariant)
+		return nil
+	}
 	if n > regexScratchSize {
 		n = regexScratchSize
 	}
@@ -460,7 +474,9 @@ func (s *scan) cdfScratch(i, n int) ([]byte, bool) {
 
 // truncate records the first limit that fired (later ones do not replace it).
 func (s *scan) truncate(why string) {
-	invariant.Check(why != "", "truncation names a reason")
+	if !invariant.Check(why != "", "truncation names a reason") {
+		why = TruncInvariant
+	}
 	if s.truncated == "" {
 		s.truncated = why
 	}
@@ -479,7 +495,10 @@ func (s *scan) fail(what string) bool {
 
 // noteRead records that bytes up to end were consulted.
 func (s *scan) noteRead(end int) {
-	invariant.Check(end >= 0, "read end non-negative")
+	if !invariant.Check(end >= 0, "read end non-negative") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	if end > len(s.buf) {
 		end = len(s.buf)
 	}
@@ -491,7 +510,10 @@ func (s *scan) noteRead(end int) {
 // oob is the reference's offset_oob: whether i bytes at offset o lie
 // outside a window of n bytes. A failure is remembered for NeedMore.
 func (s *scan) oob(n int, o int64, i int) bool { // readLength
-	invariant.Check(n >= 0, "window length non-negative")
+	if !invariant.Check(n >= 0, "window length non-negative") {
+		s.truncate(TruncInvariant)
+		return true
+	}
 	if o < 0 || o > int64(n) || int64(i) > int64(n)-o {
 		s.oobHit = true
 		return true
@@ -502,7 +524,10 @@ func (s *scan) oob(n int, o int64, i int) bool { // readLength
 
 // timeUp polls the context every timeCheckEvery calls.
 func (s *scan) timeUp() bool {
-	invariant.Check(s.timeCheck >= 0 && s.timeCheck < timeCheckEvery, "poll counter within period")
+	if !invariant.Check(s.timeCheck >= 0 && s.timeCheck < timeCheckEvery, "poll counter within period") {
+		s.truncate(TruncInvariant)
+		s.timeCheck = 0
+	}
 	s.timeCheck++
 	if s.timeCheck < timeCheckEvery || s.ctx == nil {
 		return false
@@ -519,7 +544,10 @@ func (s *scan) timeUp() bool {
 
 // write appends b, truncating at the cap (reported as Truncated "output").
 func (s *scan) write(b []byte) { // output
-	invariant.Check(s.outLen <= maxOutput, "output length within cap")
+	if !invariant.Check(s.outLen >= 0 && s.outLen <= maxOutput, "output length within cap") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	if s.abort != "" {
 		return // after an error the reference prints nothing more
 	}
@@ -531,7 +559,10 @@ func (s *scan) write(b []byte) { // output
 }
 
 func (s *scan) writeString(str string) {
-	invariant.Check(s.outLen <= maxOutput, "output length within cap")
+	if !invariant.Check(s.outLen >= 0 && s.outLen <= maxOutput, "output length within cap") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	if s.abort != "" {
 		return
 	}
@@ -559,12 +590,17 @@ func (s *scan) writeByte(c byte) { // char
 // ELF reader's own, as the reference pushes those), a blank, and msg. Only
 // the first error counts, and nothing is printed after it.
 func (s *scan) abortWith(reason, msg string) {
-	invariant.Check(reason != "" && msg != "", "an error names its limit")
+	if !invariant.Check(reason != "" && msg != "", "an error names its limit") {
+		reason, msg = TruncInvariant, TruncInvariant // still stop the run
+	}
 	if s.abort != "" {
 		return
 	}
 	base, pushed := s.bufferBase()
-	invariant.Check(base >= 0 && base <= s.outLen, "buffer start within the output")
+	if !invariant.Check(base >= 0 && base <= s.outLen, "buffer start within the output") {
+		s.truncate(TruncInvariant)
+		base = s.outLen
+	}
 	s.abort, s.abortBuf, s.abortPushed = msg, string(s.out[base:s.outLen]), pushed
 	s.abortPartial = string(s.out[:s.outLen])
 	s.truncate(reason)
@@ -606,8 +642,14 @@ func (s *scan) classifyMain() encoding {
 // continue run, with its position recorded so the answers can be told
 // apart without searching the text for it.
 func (s *scan) writeSep() {
-	invariant.Check(s.cont, "separators only in continue runs")
-	invariant.Check(s.nseps <= maxSeps, "separator count within cap")
+	if !invariant.Check(s.cont, "separators only in continue runs") {
+		s.truncate(TruncInvariant)
+		return
+	}
+	if !invariant.Check(s.nseps >= 0 && s.nseps <= maxSeps, "separator count within cap") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	if s.nseps == maxSeps || s.outLen+len(sepText) > maxOutput {
 		s.truncate(TruncOutput)
 		return
@@ -622,7 +664,10 @@ func (s *scan) writeSep() {
 // the terminating NUL, so an output that is a separator and nothing else is
 // left as it is.
 func (s *scan) trimSep() {
-	invariant.Check(s.nseps >= 0 && s.nseps <= maxSeps, "separator count within cap")
+	if !invariant.Check(s.nseps >= 0 && s.nseps <= maxSeps, "separator count within cap") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	if s.outLen < len(sepText)+1 {
 		return
 	}
@@ -634,7 +679,11 @@ func (s *scan) trimSep() {
 
 // noteRule records a line that contributed text.
 func (s *scan) noteRule(rec int32) {
-	invariant.Check(rec >= 0, "rule index non-negative")
+	if !invariant.Check(rec >= 0, "rule index non-negative") {
+		s.truncate(TruncInvariant)
+		return
+	}
+
 	if s.nrules < maxRules {
 		s.rules[s.nrules] = rec
 		s.nrules++

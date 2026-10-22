@@ -240,7 +240,10 @@ func (c *cdfFile) readSAT() bool {
 // count is never used.
 func (c *cdfFile) satEntriesPerSector() (int, bool) {
 	ss := c.h.secSize()
-	invariant.Check(ss > 0, "sector size positive")
+	if !invariant.Check(ss > 0, "sector size positive") {
+		c.s.truncate(TruncInvariant)
+		return 0, false
+	}
 	n := ss/4 - 1
 	if n >= 0 {
 		return n, true
@@ -272,7 +275,10 @@ func (c *cdfFile) satGeometry(nsatpersec int) (used, satLen int, ok bool) {
 
 // copyHeaderSAT copies the SAT sectors the header's master table lists.
 func (c *cdfFile) copyHeaderSAT() bool {
-	invariant.Check(len(c.sat)%c.h.secSize() == 0, "table holds whole sectors")
+	if !invariant.Check(len(c.sat)%c.h.secSize() == 0, "table holds whole sectors") {
+		c.s.truncate(TruncInvariant)
+		return false
+	}
 	ss := c.h.secSize() // sectorSize
 	for k := 0; k < len(c.h.masterSAT) && c.h.masterSAT[k] >= 0; k++ {
 		sec, ok := c.readSector(c.h.masterSAT[k])
@@ -287,8 +293,11 @@ func (c *cdfFile) copyHeaderSAT() bool {
 // readMasterSector copies the SAT sectors one master sector lists; a
 // negative returned index means the table ended early (not an error).
 func (c *cdfFile) readMasterSector(msa []byte, i, nsatpersec, satLen int) (int, bool) { // satSectorCount
-	invariant.Check(nsatpersec >= 0 && satLen >= 0, "master sector geometry") // zero per sector when a sector is four bytes
-	ss := c.h.secSize()                                                       // sectorSize
+	if !invariant.Check(nsatpersec >= 0 && satLen >= 0, "master sector geometry") { // zero per sector when a sector is four bytes
+		c.s.truncate(TruncInvariant)
+		return 0, false
+	}
+	ss := c.h.secSize() // sectorSize
 	for k := 0; k < nsatpersec; k++ {
 		sec := secidAt(msa, int64(k))
 		if sec < 0 {
@@ -495,7 +504,9 @@ func (c *cdfFile) readDir() bool {
 
 // unpackDir is cdf_unpack_dir with the fields this port uses.
 func unpackDir(b []byte) cdfDir { // entryBytes
-	invariant.Check(len(b) >= cdfDirectorySz, "directory entry complete")
+	if !invariant.Check(len(b) >= cdfDirectorySz, "directory entry complete") {
+		return cdfDir{}
+	}
 	le := binary.LittleEndian // littleEndian
 	var d cdfDir              // directoryEntry
 	for i := range d.name {
@@ -716,7 +727,9 @@ func (pr *propReader) copyInfo(pos, n int, prop *cdfProp) uint64 {
 
 // strings reads a string property, or the elements of a string vector.
 func (pr *propReader) strings(props []cdfProp, prop cdfProp, i, q, nelements, slen int) ([]cdfProp, int, bool) { // valueOffset
-	invariant.Check(nelements > 0 && slen >= 1, "string element count and length words")
+	if !invariant.Check(nelements > 0 && slen >= 1, "string element count and length words") {
+		return nil, i, false
+	}
 	left := pr.e - q
 	o4 := slen * 4 // elementOffset
 	for j := 0; j < nelements && i < pr.n; j++ {
@@ -786,7 +799,9 @@ func clsidName(uuid [2]uint64, mime bool) string {
 
 // appName is cdf_app_to_mime over app2mime: a case-insensitive substring.
 func appName(v string) string { // appValue
-	invariant.Check(len(v) < 1024, "application name bounded")
+	if !invariant.Check(len(v) < 1024, "application name bounded") {
+		return ""
+	}
 	pats := [...][2]string{
 		{"Word", "msword"}, {"Excel", "vnd.ms-excel"}, {"Powerpoint", "vnd.ms-powerpoint"},
 		{"Crystal Reports", "x-rpt"}, {"Advanced Installer", "vnd.ms-msi"},
@@ -803,7 +818,9 @@ func appName(v string) string { // appValue
 
 // dirName is cdf_app_to_mime over name2mime / name2desc.
 func dirName(v string, mime bool) string { // directoryName
-	invariant.Check(len(v) <= 32, "directory name bounded")
+	if !invariant.Check(len(v) <= 32, "directory name bounded") {
+		return ""
+	}
 	rows := [...][3]string{
 		{"Book", "vnd.ms-excel", "Microsoft Excel"},
 		{"Workbook", "vnd.ms-excel", "Microsoft Excel"},
@@ -856,7 +873,9 @@ func propertyName(id uint32) string { // propertyID
 // reference builds it: up to 1023 printable bytes, wide strings by their
 // low bytes, stopping at a NUL.
 func propertyText(p *cdfProp) string { // property
-	invariant.Check(p.typ&cdfTypeMask == cdfTypeString || p.typ&cdfTypeMask == cdfTypeWString, "string property")
+	if !invariant.Check(p.typ&cdfTypeMask == cdfTypeString || p.typ&cdfTypeMask == cdfTypeWString, "string property") {
+		return ""
+	}
 	var out [1024]byte
 	n := 0 // textLength
 	step := 1
@@ -883,7 +902,9 @@ func propertyText(p *cdfProp) string { // property
 
 // cdfElapsed is cdf_print_elapsed_time.
 func cdfElapsed(ts int64) string { // timestamp
-	invariant.Check(ts < 1000000000000000, "elapsed times are below the date threshold")
+	if !invariant.Check(ts < 1000000000000000, "elapsed times are below the date threshold") {
+		return ""
+	}
 	ts /= cdfTimePrec // C division and modulo: truncating, so a negative time keeps its sign
 	secs := ts % 60
 	ts /= 60
@@ -964,7 +985,9 @@ func cdfTime(t int64) string { // timestamp
 }
 
 func pad16(v uint64) string {
-	invariant.Check(v > maxCTime, "only bad timestamps are printed in hex")
+	if !invariant.Check(v > maxCTime, "only bad timestamps are printed in hex") {
+		return ""
+	}
 	s := strconv.FormatUint(v, 16)
 	for n := len(s); n < 16; n++ {
 		s = "0" + s

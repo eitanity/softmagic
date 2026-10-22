@@ -38,7 +38,9 @@ const prefilterMax = 16
 
 // prefilterOf derives the prefilter of a first line, or an inactive one.
 func prefilterOf(r *record) prefilter { // magicLine
-	invariant.Check(r.contLevel == 0, "prefilter of a first line")
+	if !invariant.Check(r.contLevel == 0, "prefilter of a first line") {
+		return prefilter{}
+	}
 	var pf prefilter // prefilter
 	if r.reln != '=' || r.offset < 0 ||
 		r.flag&(flagIndir|flagOffAdd|flagIndirOffAdd|flagOffNegative) != 0 {
@@ -63,7 +65,9 @@ func prefilterOf(r *record) prefilter { // magicLine
 // integerLiteral writes the bytes an integer test compares against and
 // returns their count, 0 for a type the prefilter does not cover.
 func integerLiteral(r *record, lit []byte) uint8 {
-	invariant.Check(len(lit) >= 8, "literal buffer holds a quad")
+	if !invariant.Check(len(lit) >= 8, "literal buffer holds a quad") {
+		return 0
+	}
 	v := binary.LittleEndian.Uint64(r.value[0:8]) // value
 	switch r.typ {
 	case tByte:
@@ -114,7 +118,9 @@ func (db *Database) buildPrefilters() {
 
 // skipMask evaluates skipTop for every mode and text combination.
 func skipMask(m *record) uint8 {
-	invariant.Check(m.contLevel == 0, "skip mask of a first line")
+	if !invariant.Check(m.contLevel == 0, "skip mask of a first line") {
+		return 0 // nothing skipped
+	}
 	var mask uint8
 	for _, mode := range [2]uint16{flagBinTest, flagTextTest} {
 		for _, text := range [2]bool{false, true} {
@@ -129,7 +135,11 @@ func skipMask(m *record) uint8 {
 // prefilterOK reports whether the line's literal is present; it keeps the
 // same bookkeeping the full evaluation would have done on that line.
 func (s *scan) prefilterOK(f *frame, pf *prefilter) bool { // frame
-	invariant.Check(pf.n > 0 && int(pf.n) <= prefilterMax, "active prefilter")
+	if !invariant.Check(pf.n > 0 && int(pf.n) <= prefilterMax, "active prefilter") {
+		s.truncate(TruncInvariant)
+		return true // the line is evaluated in full
+	}
+
 	win := s.window(f)
 	off := int64(pf.off)
 	end := off + int64(pf.n)

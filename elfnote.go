@@ -49,7 +49,10 @@ func (n *elfNote) nameIs(v string) bool {
 
 // notes walks the notes in a buffer: the loop around donote.
 func (e *elfState) notes(data []byte, align int) {
-	invariant.Check(align >= 4, "note alignment")
+	if !invariant.Check(align >= 4, "note alignment") {
+		e.s.truncate(TruncInvariant)
+		return
+	}
 	offset := 0
 	for n := 0; n <= len(data) && offset < len(data); n++ {
 		next := e.note(data, offset, align)
@@ -166,7 +169,10 @@ func copyStr(b []byte, width int) string {
 
 // osNote is do_os_note.
 func (e *elfState) osNote(n *elfNote) bool { // note
-	invariant.Check(e.flags&elfDidOSNote == 0, "OS note not yet seen")
+	if !invariant.Check(e.flags&elfDidOSNote == 0, "OS note not yet seen") {
+		e.s.truncate(TruncInvariant)
+		return false
+	}
 	d := n.desc // descriptor
 	switch {
 	case n.nameIs("SuSE") && n.typ == ntGNUVersion && len(d) == 2:
@@ -248,7 +254,10 @@ func (e *elfState) netbsdVersion(desc uint32) {
 
 // freebsdVersion is do_note_freebsd_version.
 func (e *elfState) freebsdVersion(desc uint32) {
-	invariant.Check(e.flags&elfDidOSNote != 0, "OS note flagged by the caller")
+	if !invariant.Check(e.flags&elfDidOSNote != 0, "OS note flagged by the caller") {
+		e.s.truncate(TruncInvariant)
+		return
+	}
 	e.printf(", for FreeBSD")
 	d := uint64(desc) // descValue
 	switch {
@@ -305,7 +314,10 @@ func (e *elfState) memtagNote(n *elfNote) bool {
 // flagList prints the names of the set bits, comma separated, after the
 // prefix; an empty name skips its bit.
 func (e *elfState) flagList(desc uint32, prefix string, names [6]string) {
-	invariant.Check(prefix != "", "list has a prefix")
+	if !invariant.Check(prefix != "", "list has a prefix") {
+		e.s.truncate(TruncInvariant)
+		return
+	}
 	if desc == 0 {
 		return
 	}
@@ -356,7 +368,10 @@ func (e *elfState) netbsdNote(n *elfNote) { // note
 
 // coreNote is do_core_note.
 func (e *elfState) coreNote(n *elfNote, data []byte, doff int) bool { // note
-	invariant.Check(doff >= 0 && doff <= len(data), "descriptor within the buffer")
+	if !invariant.Check(doff >= 0 && doff <= len(data), "descriptor within the buffer") {
+		e.s.truncate(TruncInvariant)
+		return false
+	}
 	style := -1
 	switch {
 	case (len(n.name) == 4 && string(n.name) == "CORE") || n.nameIs("CORE"):
@@ -383,7 +398,10 @@ func (e *elfState) coreNote(n *elfNote, data []byte, doff int) bool { // note
 // netbsdCore prints a NetBSD core's process info from struct
 // NetBSD_elfcore_procinfo (name at 124, siglwp at 156).
 func (e *elfState) netbsdCore(n *elfNote) bool { // note
-	invariant.Check(n.nameIs("NetBSD-CORE") || len(n.name) >= 11, "NetBSD core note")
+	if !invariant.Check(n.nameIs("NetBSD-CORE") || len(n.name) >= 11, "NetBSD core note") {
+		e.s.truncate(TruncInvariant)
+		return false
+	}
 	if n.typ != ntNetBSDCoreProc {
 		return false
 	}
@@ -456,7 +474,9 @@ func (e *elfState) svr4Core(n *elfNote, data []byte, doff int) bool { // note
 // prpsNameLen checks the 16-byte name field at a candidate offset and
 // returns how many bytes it held before a NUL.
 func prpsNameLen(data []byte, doff, rel, descsz int) (int, bool) {
-	invariant.Check(rel >= 0 && descsz >= 0, "offsets non-negative")
+	if !invariant.Check(rel >= 0 && descsz >= 0, "offsets non-negative") {
+		return 0, false
+	}
 	j := 0 // nameIndex
 	for ; j < 16; j++ {
 		noff := doff + rel + j
@@ -531,7 +551,10 @@ func (e *elfState) auxvNote(n *elfNote) bool { // note
 // stringAt is get_string_on_virtaddr: the printable NUL-terminated string
 // at a virtual address, located through the core's program headers.
 func (e *elfState) stringAt(virtaddr uint64) (string, bool) {
-	invariant.Check(e.phNum >= 0, "program header count non-negative")
+	if !invariant.Check(e.phNum >= 0, "program header count non-negative") {
+		e.s.truncate(TruncInvariant)
+		return "", false
+	}
 	off := e.phOff
 	size := e.phdrSize()
 	for n := e.phNum; n > 0; n-- {
@@ -631,7 +654,10 @@ func (e *elfState) capSection(st *shdrState, sh *elfShdr) bool { // sectionState
 
 // capabilities prints the SunOS hardware and software capabilities.
 func (e *elfState) capabilities(st *shdrState) { // sectionState
-	invariant.Check(st != nil, "section state present")
+	if !invariant.Check(st != nil, "section state present") {
+		e.s.truncate(TruncInvariant)
+		return
+	}
 	if st.capHW1 != 0 {
 		e.hardwareCaps(st.capHW1)
 	}
@@ -652,7 +678,10 @@ func (e *elfState) capabilities(st *shdrState) { // sectionState
 
 // hardwareCaps names the hardware capability bits for the machine.
 func (e *elfState) hardwareCaps(hw uint64) { // hwCaps
-	invariant.Check(hw != 0, "capabilities present")
+	if !invariant.Check(hw != 0, "capabilities present") {
+		e.s.truncate(TruncInvariant)
+		return
+	}
 	e.printf(", uses")
 	names := capNames(e.machine)
 	if names == nil {

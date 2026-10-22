@@ -17,7 +17,10 @@ import (
 // detectCDF is file_trycdf, run once for the description and once for the
 // MIME type, as the reference is run twice by `file` and `file -i`.
 func (s *scan) detectCDF() builtinResult {
-	invariant.Check(len(s.buf) >= 2, "detectors run on two or more bytes")
+	if !invariant.Check(len(s.buf) >= 2, "detectors run on two or more bytes") {
+		s.truncate(TruncInvariant)
+		return builtinResult{}
+	}
 	if _, ok := cdfReadHeader(s.cdfHeaderBytes()); !ok {
 		return builtinResult{}
 	}
@@ -36,12 +39,18 @@ func (s *scan) detectCDF() builtinResult {
 // made that shorter, through the IdentifyAt reader, as the reference's
 // cdf_read falls back to its descriptor.
 func (s *scan) cdfHeaderBytes() []byte {
-	invariant.Check(s.buf != nil || len(s.buf) == 0, "input window")
+	if !invariant.Check(s.buf != nil || len(s.buf) == 0, "input window") {
+		s.truncate(TruncInvariant)
+		return nil
+	}
 	if len(s.buf) >= 512 {
 		return s.buf
 	}
 	b, ok := s.readAt(0, 512)
-	invariant.Check(!ok || len(b) == 512, "a header read is whole")
+	if !invariant.Check(!ok || len(b) == 512, "a header read is whole") {
+		s.truncate(TruncInvariant)
+		return nil
+	}
 	if !ok {
 		return nil
 	}
@@ -56,7 +65,10 @@ func (s *scan) cdfRun(mime bool) (string, bool) {
 	c := &cdfFile{s: s, buf: s.buf, root: -1, streamSlot: 3}
 	var ok bool
 	c.h, ok = cdfReadHeader(s.cdfHeaderBytes())
-	invariant.Check(ok, "header checked by detectCDF")
+	if !invariant.Check(ok, "header checked by detectCDF") {
+		s.truncate(TruncInvariant)
+		return "", false
+	}
 	i, expn := pr.body(c) // handlerIdx
 	if i == -1 {
 		// The reference's default handler.
@@ -164,7 +176,9 @@ func (pr cdfPrinter) checkSummaryInfo(c *cdfFile, st *cdfStream) (int, string) {
 // dirNameString is the entry's name as the reference passes it to
 // strcasestr: the low bytes of its units, up to a NUL or 32 characters.
 func dirNameString(d *cdfDir) string {
-	invariant.Check(d != nil, "entry present")
+	if !invariant.Check(d != nil, "entry present") {
+		return ""
+	}
 	var b [32]byte
 	n := 0
 	for ; n < len(d.name) && d.name[n] != 0; n++ {
@@ -195,7 +209,7 @@ func (pr cdfPrinter) fileSummaryInfo(c *cdfFile, st *cdfStream) int { // cdfFile
 		default:
 			pr.write(", Os " + strconv.Itoa(int(si.os)) + ", Version: " + lo + "." + hi)
 		}
-		if c.root >= 0 {
+		if c.root >= 0 && c.root < len(c.dir) {
 			if str := clsidName(c.dir[c.root].storageUUID, false); str != "" {
 				pr.write(", " + str)
 			}
@@ -210,7 +224,10 @@ func (pr cdfPrinter) fileSummaryInfo(c *cdfFile, st *cdfStream) int { // cdfFile
 
 // propertyInfo is cdf_file_property_info.
 func (pr cdfPrinter) propertyInfo(c *cdfFile, props []cdfProp) int {
-	invariant.Check(c.root < len(c.dir), "root index within the directory")
+	if !invariant.Check(c.root < len(c.dir), "root index within the directory") {
+		pr.s.truncate(TruncInvariant)
+		return -1
+	}
 	str := ""
 	if pr.mime && c.root >= 0 {
 		str = clsidName(c.dir[c.root].storageUUID, true)
@@ -286,7 +303,10 @@ func (pr cdfPrinter) filetime(p *cdfProp, name string) {
 
 // dirInfo is cdf_file_dir_info: known stream and storage names.
 func (pr cdfPrinter) dirInfo(c *cdfFile) int { // cdfFile
-	invariant.Check(len(c.dir) <= cdfMaxDirs, "directory bounded")
+	if !invariant.Check(len(c.dir) <= cdfMaxDirs, "directory bounded") {
+		pr.s.truncate(TruncInvariant)
+		return -1
+	}
 	type section struct {
 		name, mime string
 		streams    [2]string
@@ -386,7 +406,9 @@ func unpackCatalog(st *cdfStream) ([]string, bool) {
 
 // catalogRecords counts the length-prefixed records up to a zero length.
 func catalogRecords(tab []byte) int {
-	invariant.Check(len(tab) <= cdfSATLimit*4, "catalog bounded")
+	if !invariant.Check(len(tab) <= cdfSATLimit*4, "catalog bounded") {
+		return 0
+	}
 	nr, b := 0, 0 // recordOff
 	for ; nr <= len(tab) && b <= len(tab)-2; nr++ {
 		reclen := int(binary.LittleEndian.Uint16(tab[b:]))
@@ -403,7 +425,9 @@ func catalogRecords(tab []byte) int {
 
 // catalogName is the entry's name from n UTF-16 units, low bytes.
 func catalogName(b []byte, n int) string {
-	invariant.Check(n >= 0 && n <= 255 && len(b) >= 2*n, "name units within the record")
+	if !invariant.Check(n >= 0 && n <= 255 && len(b) >= 2*n, "name units within the record") {
+		return ""
+	}
 	var name [255]byte
 	k := 0 // nameIdx
 	for ; k < n; k++ {

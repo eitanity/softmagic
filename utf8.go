@@ -95,7 +95,9 @@ func utf8AcceptRange(class uint8) (lo, hi byte) {
 // UTF-8, 0 for valid UTF-8 containing control characters, 1 for plain
 // ASCII, 2 for valid multi-byte UTF-8.
 func looksUTF8(buf []byte) int {
-	invariant.Check(len(buf) <= encodingLimitMax || len(buf) <= maxString, "classified window bounded")
+	if !invariant.Check(len(buf) <= encodingLimitMax || len(buf) <= maxString, "classified window bounded") {
+		return -1
+	}
 	gotone, ctrl := false, false
 	for i := 0; i < len(buf); i++ { // byteIdx
 		b := buf[i] // octet
@@ -105,14 +107,7 @@ func looksUTF8(buf []byte) int {
 			}
 			continue
 		}
-		if b&0x40 == 0 {
-			return -1
-		}
-		following, ok := utf8Following(b)
-		if !ok {
-			return -1
-		}
-		end, valid := utf8Continuation(buf, i, following, utf8FirstClass(b))
+		end, valid := utf8Sequence(buf, i)
 		if !valid {
 			return -1
 		}
@@ -125,12 +120,28 @@ func looksUTF8(buf []byte) int {
 	return utf8Verdict(ctrl, gotone)
 }
 
+// utf8Sequence validates the multi-byte sequence led by buf[i]; it returns
+// the index of the last byte consumed, as utf8Continuation does.
+func utf8Sequence(buf []byte, i int) (int, bool) { // pos
+	b := buf[i] // leadByte
+	if b&0x40 == 0 {
+		return i, false
+	}
+	following, ok := utf8Following(b)
+	if !ok {
+		return i, false
+	}
+	return utf8Continuation(buf, i, following, utf8FirstClass(b))
+}
+
 // utf8Continuation validates the `following` bytes after the lead byte at
 // buf[i]; it returns the index of the last byte consumed and whether every
 // byte seen was a valid continuation. Running past the buffer is not an
 // error: the index is then len(buf).
 func utf8Continuation(buf []byte, i, following int, class uint8) (int, bool) { // pos
-	invariant.Check(following >= 1 && following <= 5, "continuation count")
+	if !invariant.Check(following >= 1 && following <= 5, "continuation count") {
+		return i, false
+	}
 	lo, hi := utf8AcceptRange(class) // hiBound
 	for n := 0; n < following; n++ {
 		i++

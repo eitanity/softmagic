@@ -50,8 +50,11 @@ func (k memoKey) slot() int {
 
 // memoGet returns the remembered answer for k in this call.
 func (s *scan) memoGet(k memoKey) (int32, int32, bool) {
-	invariant.Check(s.gen != 0, "call generation set")
-	invariant.Check(k.kind == memoRegex || k.kind == memoSearch, "memo kind")
+	if !invariant.Check(s.gen != 0, "call generation set") ||
+		!invariant.Check(k.kind == memoRegex || k.kind == memoSearch, "memo kind") {
+		s.truncate(TruncInvariant)
+		return 0, 0, false // a miss: the line is evaluated
+	}
 	e := &s.memo[k.slot()]
 	if e.gen != s.gen || e.key != k {
 		return 0, 0, false
@@ -61,15 +64,20 @@ func (s *scan) memoGet(k memoKey) (int32, int32, bool) {
 
 // memoPut remembers an answer for k in this call.
 func (s *scan) memoPut(k memoKey, a, b int32) {
-	invariant.Check(s.gen != 0, "call generation set")
-	invariant.Check(k.window == windowBin || k.window == windowText, "memo window")
+	if !invariant.Check(s.gen != 0, "call generation set") ||
+		!invariant.Check(k.window == windowBin || k.window == windowText, "memo window") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	s.memo[k.slot()] = memoEntry{key: k, a: a, b: b, gen: s.gen}
 }
 
 // regionKey is the key for the line at rec over the current search region.
 func (s *scan) regionKey(kind uint8, rec int32) memoKey {
-	invariant.Check(s.search.valid, "region set")
-	invariant.Check(s.winID != 0, "window set")
+	if !invariant.Check(s.search.valid, "region set") || !invariant.Check(s.winID != 0, "window set") {
+		s.truncate(TruncInvariant)
+		return memoKey{} // no window: memoGet misses and memoPut drops it
+	}
 	return memoKey{rec: rec, start: smallInt32(s.search.start), length: smallInt32(s.search.length),
 		window: s.winID, kind: kind}
 }
@@ -94,8 +102,10 @@ func nextCandidate(b []byte, c1, c2 byte) int {
 // U+00FF: the only non-ASCII case equivalents of ASCII letters (U+212A,
 // U+017F) cannot occur there.
 func containsFoldASCII(region []byte, lit []byte) bool {
-	invariant.Check(len(lit) != 0, "literal given")
-	invariant.Check(!cIsUpper(lit[0]), "literal is lower case")
+	if !invariant.Check(len(lit) != 0, "literal given") ||
+		!invariant.Check(!cIsUpper(lit[0]), "literal is lower case") {
+		return true // a match stays possible: the regex decides
+	}
 	c1 := lit[0]
 	c2 := cToUpper(c1)
 	last := len(region) - len(lit)
@@ -115,7 +125,9 @@ func containsFoldASCII(region []byte, lit []byte) bool {
 // foldEqual compares b with a lower-case ASCII literal, folding b's
 // letters.
 func foldEqual(b []byte, lit []byte) bool {
-	invariant.Check(len(b) == len(lit), "same length")
+	if !invariant.Check(len(b) == len(lit), "same length") {
+		return false
+	}
 	for i := 0; i < len(lit); i++ {
 		if cToLower(b[i]) != lit[i] {
 			return false
@@ -128,12 +140,16 @@ func foldEqual(b []byte, lit []byte) bool {
 // because none of the pattern's mandatory literals is present, in the
 // region or, for an anchored pattern, at the start of any line.
 func (r *regexSlot) possible(region []byte) bool {
-	invariant.Check(len(r.lits) != 0, "literals given")
+	if !invariant.Check(len(r.lits) != 0, "literals given") {
+		return true // no prefilter: the regex decides
+	}
 	if r.lineStart {
 		return r.atLineStart(region)
 	}
 	for _, lit := range r.lits {
-		invariant.Check(len(lit) != 0, "literal non-empty")
+		if !invariant.Check(len(lit) != 0, "literal non-empty") {
+			return true // an empty literal is in every region
+		}
 		if r.fold && containsFoldASCII(region, lit) {
 			return true
 		}
@@ -148,7 +164,9 @@ func (r *regexSlot) possible(region []byte) bool {
 // the literals. (?m)^ matches at the start and after each '\n', which the
 // Latin-1 transcoding leaves in place.
 func (r *regexSlot) atLineStart(region []byte) bool {
-	invariant.Check(r.lineStart, "anchored pattern")
+	if !invariant.Check(r.lineStart, "anchored pattern") {
+		return true // a match stays possible: the regex decides
+	}
 	pos := 0
 	for lines := 0; lines <= len(region); lines++ { // a line takes at least one byte
 		if r.prefixOf(region[pos:]) {
@@ -165,9 +183,12 @@ func (r *regexSlot) atLineStart(region []byte) bool {
 
 // prefixOf reports whether b begins with one of the literals.
 func (r *regexSlot) prefixOf(b []byte) bool { // input
-	invariant.Check(len(r.lits) != 0, "literals given")
+	if !invariant.Check(len(r.lits) != 0, "literals given") {
+		return true // a match stays possible: the regex decides
+	}
 	for _, lit := range r.lits {
 		if len(lit) > len(b) {
+
 			continue
 		}
 		if r.fold && foldEqual(b[:len(lit)], lit) {

@@ -30,7 +30,9 @@ func (p *lineParser) cur() byte { return at(p.line, p.i) }
 
 // parseContLevel counts the leading '>' characters.
 func (p *lineParser) parseContLevel() int {
-	invariant.Check(p.i == 0, "continuation count starts the line")
+	if !invariant.Check(p.i == 0, "continuation count starts the line") {
+		return 0
+	}
 	n := 0
 	for ; p.i < len(p.line) && p.line[p.i] == '>'; p.i++ {
 		n++
@@ -40,23 +42,17 @@ func (p *lineParser) parseContLevel() int {
 
 // parseOffset reads [&][(][&][+-]offset[.t[~][op][(]in_offset)[)]] into rec.
 func (p *lineParser) parseOffset() error {
-	invariant.Check(p.i <= len(p.line), "cursor within the line")
-	invariant.Check(p.rec != nil, "record to fill")
+	if !invariant.Check(p.i <= len(p.line), "cursor within the line") ||
+		!invariant.Check(p.rec != nil, "record to fill") {
+		return p.errorf("offset read out of sequence")
+	}
 	r := p.rec // rec
 	if p.cur() == '&' {
 		p.i++
 		r.flag |= flagOffAdd
 	}
 	if p.cur() == '(' {
-		p.i++
-		r.flag |= flagIndir
-		if r.flag&flagOffAdd != 0 {
-			r.flag = r.flag&^flagOffAdd | flagIndirOffAdd
-		}
-		if p.cur() == '&' {
-			p.i++
-			r.flag |= flagOffAdd
-		}
+		p.parseIndirOpen()
 	}
 	if r.contLevel == 0 && r.flag&(flagOffAdd|flagIndirOffAdd) != 0 {
 		return p.errorf("relative offset at level 0")
@@ -81,11 +77,32 @@ func (p *lineParser) parseOffset() error {
 	return nil
 }
 
+// parseIndirOpen consumes the '(' that makes an offset indirect and the
+// '&' that may follow it; an '&' before the '(' becomes the indirect
+// relative flag.
+func (p *lineParser) parseIndirOpen() {
+	if !invariant.Check(p.cur() == '(', "indirect offset opens here") {
+		return
+	}
+	r := p.rec // rec
+	p.i++
+	r.flag |= flagIndir
+	if r.flag&flagOffAdd != 0 {
+		r.flag = r.flag&^flagOffAdd | flagIndirOffAdd
+	}
+	if p.cur() == '&' {
+		p.i++
+		r.flag |= flagOffAdd
+	}
+}
+
 // parseIndirect reads the part of an indirect offset after the base offset:
 // [.,t][~][op][(]in_offset)[)].
 func (p *lineParser) parseIndirect() error {
-	invariant.Check(p.i <= len(p.line), "cursor within the line")
-	invariant.Check(p.rec.flag&flagIndir != 0, "indirect offset")
+	if !invariant.Check(p.i <= len(p.line), "cursor within the line") ||
+		!invariant.Check(p.rec.flag&flagIndir != 0, "indirect offset") {
+		return p.errorf("indirect offset read out of sequence")
+	}
 	r := p.rec // rec
 	r.inType, r.inOffset, r.inOp = tLong, 0, 0
 	if err := p.parseIndirectType(); err != nil {
@@ -207,17 +224,14 @@ func getOp(c byte) (uint8, bool) {
 // parseType reads the test type: a keyword, optionally prefixed by 'u', or
 // one of the SUS forms d/u[1248CSILQ] and s, or a special keyword.
 func (p *lineParser) parseType() error {
-	invariant.Check(p.rec.typ == tInvalid, "type not yet set")
-	invariant.Check(p.i <= len(p.line), "cursor within the line")
+	if !invariant.Check(p.rec.typ == tInvalid, "type not yet set") ||
+		!invariant.Check(p.i <= len(p.line), "cursor within the line") {
+		return p.errorf("type read out of sequence")
+	}
 	r := p.rec // rec
 	rest := p.line[p.i:]
 	if p.cur() == 'u' {
-		t, n := lookupType(p.tables.types[:], rest[1:]) // fileType
-		if t == tInvalid {
-			t, n = standardIntegerType(rest)
-		} else {
-			n++
-		}
+		t, n := p.unsignedType(rest) // fileType
 		if t != tInvalid {
 			r.flag |= flagUnsigned
 		}
@@ -245,6 +259,16 @@ func (p *lineParser) parseType() error {
 		return p.errorf("`name' entries can only be declared at top level")
 	}
 	return nil
+}
+
+// unsignedType reads a type whose 'u' prefix starts rest: a keyword after
+// the 'u', or an SUS form. It returns the bytes consumed, 0 when none.
+func (p *lineParser) unsignedType(rest []byte) (fileType, int) { // typeText
+	t, n := lookupType(p.tables.types[:], rest[1:]) // fileType
+	if t == tInvalid {
+		return standardIntegerType(rest)
+	}
+	return t, n + 1
 }
 
 // standardIntegerType is get_standard_integer_type: "d" or "u" followed by
@@ -293,8 +317,10 @@ func standardIntegerType(s []byte) (fileType, int) { // typeText
 // a numeric mask (&0xff), a string modifier list (/bc), or an indirect
 // modifier (/r).
 func (p *lineParser) parseMask() error {
-	invariant.Check(p.i <= len(p.line), "cursor within the line")
-	invariant.Check(p.rec.typ != tInvalid, "type parsed before mask")
+	if !invariant.Check(p.i <= len(p.line), "cursor within the line") ||
+		!invariant.Check(p.rec.typ != tInvalid, "type parsed before mask") {
+		return p.errorf("mask read out of sequence")
+	}
 	r := p.rec // rec
 	r.maskOp = 0
 	if p.cur() == '~' {
@@ -328,8 +354,10 @@ func (p *lineParser) parseMask() error {
 
 // parseOpModifier is parse_op_modifier: op, number, optional size suffix.
 func (p *lineParser) parseOpModifier(op uint8) {
-	invariant.Check(op <= opModulo, "operator in range")
-	invariant.Check(!isString(p.rec.typ), "numeric mask on a numeric type")
+	if !invariant.Check(op <= opModulo, "operator in range") ||
+		!invariant.Check(!isString(p.rec.typ), "numeric mask on a numeric type") {
+		return
+	}
 	r := p.rec // rec
 	p.i++
 	r.maskOp |= op
@@ -343,8 +371,10 @@ func (p *lineParser) parseOpModifier(op uint8) {
 
 // parseIndirectModifier is parse_indirect_modifier: only /r is defined.
 func (p *lineParser) parseIndirectModifier() error {
-	invariant.Check(p.cur() == '/', "modifier list starts with a slash")
-	invariant.Check(p.rec.typ == tIndirect, "indirect modifier on an indirect line")
+	if !invariant.Check(p.cur() == '/', "modifier list starts with a slash") ||
+		!invariant.Check(p.rec.typ == tIndirect, "indirect modifier on an indirect line") {
+		return p.errorf("indirect modifier read out of sequence")
+	}
 	p.i++
 	for ; p.i < len(p.line) && !cIsSpace(p.line[p.i]); p.i++ {
 		if p.line[p.i] != 'r' {
@@ -359,8 +389,10 @@ func (p *lineParser) parseIndirectModifier() error {
 // up to whitespace, each a flag or a decimal range, with '/' permitted
 // between them for readability.
 func (p *lineParser) parseStringModifier() error {
-	invariant.Check(p.cur() == '/', "modifier list starts with a slash")
-	invariant.Check(isString(p.rec.typ), "string modifier on a string type")
+	if !invariant.Check(p.cur() == '/', "modifier list starts with a slash") ||
+		!invariant.Check(isString(p.rec.typ), "string modifier on a string type") {
+		return p.errorf("string modifier read out of sequence")
+	}
 	r := p.rec // rec
 	haveRange := false
 	p.i++
@@ -382,10 +414,7 @@ func (p *lineParser) parseStringModifier() error {
 		} else if !applyModifier(r, c) {
 			return p.errorf("string modifier `" + string(c) + "' invalid")
 		}
-		// Allow "/b/32": a '/' between modifiers is skipped, as the reference does.
-		if at(p.line, next) == '/' && next+1 < len(p.line) && !cIsSpace(p.line[next+1]) {
-			next++
-		}
+		next = modifierSlash(p.line, next)
 	}
 	if p.i >= len(p.line) {
 		// The reference reads the terminating NUL as a modifier and rejects it.
@@ -394,10 +423,21 @@ func (p *lineParser) parseStringModifier() error {
 	return p.stringModifierCheck()
 }
 
+// modifierSlash allows "/b/32": a '/' between modifiers at line[next] is
+// skipped, as the reference does. It returns where the next modifier is.
+func modifierSlash(line []byte, next int) int {
+	if at(line, next) == '/' && next+1 < len(line) && !cIsSpace(line[next+1]) {
+		return next + 1
+	}
+	return next
+}
+
 // applyModifier sets the flag for modifier character c; a pascal-length
 // letter replaces the previous length selection.
 func applyModifier(r *lineRec, c byte) bool { // rec
-	invariant.Check(c != 0, "modifier character given")
+	if !invariant.Check(c != 0, "modifier character given") {
+		return false
+	}
 	f, ok := stringModifierBit(c, r.typ) // modBit
 	if !ok {
 		return false
@@ -453,7 +493,9 @@ func stringModifierBit(c byte, t fileType) (uint32, bool) { // fileType
 // branch that returns -1 there is an error here, including a search with
 // no range.
 func (p *lineParser) stringModifierCheck() error {
-	invariant.Check(isString(p.rec.typ), "string modifier on a string type")
+	if !invariant.Check(isString(p.rec.typ), "string modifier on a string type") {
+		return p.errorf("string modifier check on a non-string type")
+	}
 	r := p.rec // rec
 	flags := r.strFlags()
 	if (r.typ != tRegex || flags&regexLineCount == 0) &&
@@ -486,8 +528,10 @@ func (p *lineParser) stringModifierCheck() error {
 // parseRelation reads the comparison operator; '=' is the default and 'x'
 // matches anything when it stands alone.
 func (p *lineParser) parseRelation() error {
-	invariant.Check(p.rec.reln == 0, "relation not yet set")
-	invariant.Check(p.i <= len(p.line), "cursor within the line")
+	if !invariant.Check(p.rec.reln == 0, "relation not yet set") ||
+		!invariant.Check(p.i <= len(p.line), "cursor within the line") {
+		return p.errorf("relation read out of sequence")
+	}
 	r := p.rec               // rec
 	switch c := p.cur(); c { // relnChar
 	case '>', '<':
@@ -520,8 +564,10 @@ func (p *lineParser) parseRelation() error {
 // tucked in after the NUL, as the reference does; it takes part in the
 // tie-break of the entry sort.
 func (p *lineParser) parseDesc() {
-	invariant.Check(p.rec.desc[0] == 0, "description not yet set")
-	invariant.Check(p.i <= len(p.line), "cursor within the line")
+	if !invariant.Check(p.rec.desc[0] == 0, "description not yet set") ||
+		!invariant.Check(p.i <= len(p.line), "cursor within the line") {
+		return
+	}
 	r := p.rec // rec
 	p.i = eatSpace(p.line, p.i)
 	if p.cur() == '\b' {
@@ -536,13 +582,17 @@ func (p *lineParser) parseDesc() {
 	if n == 0 {
 		copy(r.desc[1:maxDesc-1], p.file)
 	}
-	invariant.Check(r.desc[maxDesc-1] == 0, "description NUL-terminated")
+	if !invariant.Check(r.desc[maxDesc-1] == 0, "description NUL-terminated") {
+		r.desc[maxDesc-1] = 0
+	}
 }
 
 // parseLine parses one rule line into rec, which the caller has zeroed and
 // whose contLevel is set. It is the body of the reference's parse().
 func (p *lineParser) parseLine() error {
-	invariant.Check(p.rec != nil && p.tables != nil, "parser is set up")
+	if !invariant.Check(p.rec != nil && p.tables != nil, "parser is set up") {
+		return p.errorf("parser not set up")
+	}
 	if err := p.parseOffset(); err != nil {
 		return err
 	}

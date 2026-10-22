@@ -16,7 +16,9 @@ const mult = 10 // MULT
 // characters and bracket expressions count 1, repetition and anchor
 // characters 0, braced expressions 0, everything else 1; at least 1.
 func nonMagic(s string) int { // pattern
-	invariant.Check(len(s) < maxString, "pattern fits MAXstring")
+	if !invariant.Check(len(s) < maxString, "pattern fits MAXstring") {
+		return 1
+	}
 	rv := 0                       // nonMagicCount
 	for i := 0; i < len(s); i++ { // patIndex
 		switch s[i] {
@@ -45,8 +47,10 @@ func nonMagic(s string) int { // pattern
 
 // indexFrom is the index of the first c at or after i, or len(s).
 func indexFrom(s string, i int, c byte) int {
-	invariant.Check(i <= len(s), "start within the string")
-	invariant.Check(i >= 0, "start non-negative")
+	if !invariant.Check(i <= len(s), "start within the string") ||
+		!invariant.Check(i >= 0, "start non-negative") {
+		return len(s)
+	}
 	for ; i < len(s) && s[i] != c; i++ {
 	}
 	return i
@@ -77,7 +81,9 @@ func maxInt(a, b int) int {
 // strength1 is apprentice_magic_strength_1: the per-line score before the
 // entry's !:strength factor is applied.
 func strength1(r *record) int { // rule
-	invariant.Check(r.contLevel == 0, "strength of a first line")
+	if !invariant.Check(r.contLevel == 0, "strength of a first line") {
+		return 0
+	}
 	val := 2 * mult
 	switch {
 	case r.typ == tDefault:
@@ -114,7 +120,9 @@ func strength1(r *record) int { // rule
 
 // entryStrength is file_magic_strength for the entry whose first line is r.
 func entryStrength(r *record) int { // rule
-	invariant.Check(r.contLevel == 0, "strength of a first line")
+	if !invariant.Check(r.contLevel == 0, "strength of a first line") {
+		return 1
+	}
 	val := strength1(r)
 	switch r.factorOp {
 	case '+':

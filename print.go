@@ -20,8 +20,11 @@ import (
 
 // mprint prints the line's description with its value substituted.
 func (s *scan) mprint(m *record, f *frame) { // rule
-	invariant.Check(f.idx >= 0 && f.idx < f.count, "printing a line within the frame")
-	invariant.Check(m.hasDesc(), "printing a line with a description")
+	if !invariant.Check(f.idx >= 0 && f.idx < f.count, "printing a line within the frame") ||
+		!invariant.Check(m.hasDesc(), "printing a line with a description") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	s.noteRule(f.first + f.idx)
 	desc := varexpand(m.descString(), s.execBit)
 	v := s.value[:] // valueImage
@@ -54,7 +57,10 @@ func (s *scan) mprint(m *record, f *frame) { // rule
 
 // mprintOther prints the DER, GUID, DOS date and time and octal types.
 func (s *scan) mprintOther(m *record, desc string) { // rule
-	invariant.Check(m.hasDesc(), "printing a line with a description")
+	if !invariant.Check(m.hasDesc(), "printing a line with a description") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	v := s.value[:] // valueImage
 	switch m.typ {
 	case tDer:
@@ -90,8 +96,11 @@ func isDateType(t fileType) bool {
 // then printed with the description's conversion as a C integer of the
 // type's promoted width, or as a string when the description uses %s.
 func (s *scan) printInt(m *record, desc string, raw uint64, bits int) {
-	invariant.Check(!isString(m.typ), "integer line")
-	invariant.Check(bits == 8 || bits == 16 || bits == 32 || bits == 64, "integer width")
+	if !invariant.Check(!isString(m.typ), "integer line") ||
+		!invariant.Check(bits == 8 || bits == 16 || bits == 32 || bits == 64, "integer width") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	v := signExtend(&m.recordHead, raw) // signedValue
 	unsigned := m.flag&flagUnsigned != 0
 	if hasStringConv(desc) {
@@ -132,7 +141,10 @@ func hasStringConv(desc string) bool {
 // !, otherwise the file's bytes, truncated at CR or LF when the rule
 // string is empty and trimmed when /T says so.
 func (s *scan) printString(m *record, desc string) { // rule
-	invariant.Check(m.typ == tString || m.typ == tPString || m.typ == tBeString16 || m.typ == tLeString16, "string line")
+	if !invariant.Check(m.typ == tString || m.typ == tPString || m.typ == tBeString16 || m.typ == tLeString16, "string line") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	if m.reln == '=' || m.reln == '!' {
 		s.printfStr(desc, printable(s.rxScratch(printableMax), m.value, maxString, s.raw || s.safe))
 		return
@@ -149,8 +161,11 @@ func (s *scan) printString(m *record, desc string) { // rule
 
 // printSearch prints the bytes a search or regex matched.
 func (s *scan) printSearch(m *record, desc string) { // rule
-	invariant.Check(s.search.rmLen >= 0, "match length non-negative")
-	invariant.Check(s.search.start <= len(s.buf), "search start within the buffer")
+	if !invariant.Check(s.search.rmLen >= 0, "match length non-negative") ||
+		!invariant.Check(s.search.start <= len(s.buf), "search start within the buffer") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	if !s.search.valid {
 		return
 	}
@@ -180,7 +195,9 @@ func trimSpace(b []byte) []byte { // text
 	j := len(b)
 	for ; j > i && cIsSpace(b[j-1]); j-- {
 	}
-	invariant.Check(i <= j && j <= len(b), "trim bounds ordered")
+	if !invariant.Check(i <= j && j <= len(b), "trim bounds ordered") {
+		return nil
+	}
 	return b[i:j]
 }
 
@@ -188,9 +205,11 @@ func trimSpace(b []byte) []byte { // text
 // non-printable bytes as \ooo escapes unless raw (MAGIC_RAW), in a buffer
 // of bufsiz bytes.
 func printable(buf, str []byte, n int, raw bool) []byte { // maxLength
-	invariant.Check(len(buf) <= regexScratchSize, "printable buffer bounded")
-	invariant.Check(len(buf) >= 4, "printable buffer holds an escape")
-	invariant.Check(n >= 0, "length non-negative")
+	if !invariant.Check(len(buf) <= regexScratchSize, "printable buffer bounded") ||
+		!invariant.Check(len(buf) >= 4, "printable buffer holds an escape") ||
+		!invariant.Check(n >= 0, "length non-negative") {
+		return buf[:0]
+	}
 	out := 0
 	limit := len(buf) - 1
 	for i := 0; i < n && i < len(str) && str[i] != 0 && out < limit; i++ {
@@ -226,7 +245,9 @@ func (s *scan) printFloat(desc string, f float64) {
 // input is executable (the caller's permission bit, or the ELF built-in's
 // verdict), else b.
 func varexpand(str string, exec bool) string {
-	invariant.Check(len(str) <= maxMime, "text fits the larger of MAXDESC and MAXMIME")
+	if !invariant.Check(len(str) <= maxMime, "text fits the larger of MAXDESC and MAXMIME") {
+		return ""
+	}
 	out := ""
 	rest := str
 	for n := 0; n < maxDesc; n++ {
@@ -270,7 +291,9 @@ func indexSubstr(s, sub string) int {
 // from the union image; a big-endian GUID has its first three fields
 // byte-swapped first.
 func guidString(v []byte, be bool) string { // guidImage
-	invariant.Check(len(v) >= 16, "GUID image complete")
+	if !invariant.Check(len(v) >= 16, "GUID image complete") {
+		return ""
+	}
 	d1 := binary.LittleEndian.Uint32(v[0:4]) // data1
 	d2 := binary.LittleEndian.Uint16(v[4:6]) // data2
 	d3 := binary.LittleEndian.Uint16(v[6:8]) // data3
@@ -310,8 +333,9 @@ const maxCTime = 0x3afff487cf
 // fmtDateTime is file_fmtdatetime: asctime's format, in UTC or local time,
 // from a 32- or 64-bit second count or a Windows FILETIME.
 func fmtDateTime(t fileType, v []byte) string { // dateImage
-	invariant.Check(isDateType(t), "date type")
-	invariant.Check(len(v) >= 8, "date image complete")
+	if !invariant.Check(isDateType(t), "date type") || !invariant.Check(len(v) >= 8, "date image complete") {
+		return "*Invalid datetime*"
+	}
 	var secs int64
 	local, windows := false, false
 	switch t {
@@ -347,7 +371,9 @@ func fmtDateTime(t fileType, v []byte) string { // dateImage
 
 // fmtMSDOSDate is file_fmtdate: strftime "%b %d %Y" of a DOS date.
 func fmtMSDOSDate(v uint16) string { // dosDate
-	invariant.Check(v>>9 <= 127, "year field within seven bits")
+	if !invariant.Check(v>>9 <= 127, "year field within seven bits") {
+		return ""
+	}
 	day := int(v & 0x1f)
 	mon := int((v>>5)&0xf) - 1
 	if mon < 0 || mon > 11 {
@@ -360,7 +386,9 @@ func fmtMSDOSDate(v uint16) string { // dosDate
 
 // fmtMSDOSTime is file_fmttime: strftime "%T" of a DOS time.
 func fmtMSDOSTime(v uint16) string {
-	invariant.Check(v>>11 <= 31, "hour field within five bits")
+	if !invariant.Check(v>>11 <= 31, "hour field within five bits") {
+		return ""
+	}
 	sec := int(v&0x1f) * 2
 	minute := int((v >> 5) & 0x3f)
 	hour := int(v >> 11)
@@ -377,8 +405,11 @@ func pad2(n int) string {
 // fmtNumber is file_fmtnum: the string parsed in the base and printed in
 // decimal, or "*Invalid number*".
 func fmtNumber(b []byte, base uint64) string { // numberText
-	invariant.Check(len(b) <= maxString, "number text within MAXstring")
-	invariant.Check(base == 8 || base == 10 || base == 16, "supported base")
+	if !invariant.Check(len(b) <= maxString, "number text within MAXstring") ||
+		!invariant.Check(base == 8 || base == 10 || base == 16, "supported base") {
+		return "*Invalid number*"
+	}
+
 	n := 0
 	for ; n < len(b) && b[n] != 0; n++ {
 	}

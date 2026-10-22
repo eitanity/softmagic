@@ -150,25 +150,33 @@ func (r *lineRec) setValueQ(v uint64) { binary.LittleEndian.PutUint64(r.value[0:
 // it. For string types vallen is the authoritative length (it may include
 // embedded NULs); see valueBytes.
 func (r *record) valueString() string {
-	invariant.Check(r.vallen <= maxString, "value length within MAXstring")
-	invariant.Check(len(r.value) >= valueMin, "value holds its minimum")
+	if !invariant.Check(r.vallen <= maxString, "value length within MAXstring") ||
+		!invariant.Check(len(r.value) >= valueMin, "value holds its minimum") {
+		return ""
+	}
 	return cString(r.value)
 }
 
 func (r *lineRec) valueString() string {
-	invariant.Check(r.vallen <= maxString, "value length within MAXstring")
+	if !invariant.Check(r.vallen <= maxString, "value length within MAXstring") {
+		return ""
+	}
 	return cString(r.value[:])
 }
 
 // valueBytes is the vallen-long string value for string types.
 func (r *record) valueBytes() []byte {
-	invariant.Check(r.vallen <= maxString, "value length within MAXstring")
-	invariant.Check(int(r.vallen) <= len(r.value), "value holds vallen bytes")
+	if !invariant.Check(r.vallen <= maxString, "value length within MAXstring") ||
+		!invariant.Check(int(r.vallen) <= len(r.value), "value holds vallen bytes") {
+		return nil
+	}
 	return r.value[:r.vallen]
 }
 
 func (r *lineRec) valueBytes() []byte {
-	invariant.Check(r.vallen <= maxString, "value length within MAXstring")
+	if !invariant.Check(r.vallen <= maxString, "value length within MAXstring") {
+		return nil
+	}
 	return r.value[:r.vallen]
 }
 
@@ -194,7 +202,9 @@ func cString(b []byte) string {
 // valueNeed is how many bytes a line's value slice must hold: a GUID, or
 // the longer of a numeric value and the string's vallen.
 func valueNeed(h *recordHead) int { // head
-	invariant.Check(h.vallen <= maxString, "value length within MAXstring")
+	if !invariant.Check(h.vallen <= maxString, "value length within MAXstring") {
+		return 8
+	}
 	if h.typ == tGUID || h.typ == tLeGUID || h.typ == tBeGUID {
 		return valueMin
 	}
@@ -225,7 +235,9 @@ const arenaChunk = 256 * 1024
 
 // take returns a zeroed slice of n bytes.
 func (a *arena) take(n int) []byte { // size
-	invariant.Check(n >= 0, "size non-negative")
+	if !invariant.Check(n >= 0, "size non-negative") {
+		return nil
+	}
 	if len(a.chunk) < n {
 		size := arenaChunk
 		if n > size {
@@ -240,7 +252,9 @@ func (a *arena) take(n int) []byte { // size
 
 // copyIn returns a slice of at least need bytes holding b, zero padded.
 func (a *arena) copyIn(b []byte, need int) []byte { // src
-	invariant.Check(need >= 0, "need non-negative")
+	if !invariant.Check(need >= 0, "need non-negative") {
+		need = 0
+	}
 	if need < len(b) {
 		need = len(b)
 	}
@@ -250,11 +264,15 @@ func (a *arena) copyIn(b []byte, need int) []byte { // src
 }
 
 // intern converts a built line into a record whose byte fields live in
-// the arena.
-func (r *lineRec) intern(a *arena) record { // arena
-	invariant.Check(r.vallen <= maxString, "value length within MAXstring")
+// the arena; false when the line's value length is out of bounds.
+func (r *lineRec) intern(a *arena) (record, bool) { // arena
+	if !invariant.Check(r.vallen <= maxString, "value length within MAXstring") {
+		return record{}, false
+	}
 	need := valueNeed(&r.recordHead)
-	invariant.Check(need >= 8 && need <= maxString, "value need within the array")
+	if !invariant.Check(need >= 8 && need <= maxString, "value need within the array") {
+		return record{}, false
+	}
 	return record{
 		recordHead: r.recordHead,
 		value:      a.copyIn(r.value[:need], valueMin),
@@ -262,13 +280,15 @@ func (r *lineRec) intern(a *arena) record { // arena
 		mimetype:   a.copyIn(trimNul(r.mimetype[:]), 0),
 		apple:      a.copyIn(trimNul(r.apple[:]), 0),
 		ext:        a.copyIn(trimNul(r.ext[:]), 0),
-	}
+	}, true
 }
 
 // image writes the record as the reference's 432-byte little-endian memory
 // image with lineno zeroed: exactly what apprentice_sort hands to memcmp.
 func (r *lineRec) image(out *[recordSize]byte) {
-	invariant.Check(r.vallen <= maxString, "value length within MAXstring")
+	if !invariant.Check(r.vallen <= maxString, "value length within MAXstring") {
+		return
+	}
 	le := binary.LittleEndian // littleEndian
 	le.PutUint16(out[0:2], r.flag)
 	out[2] = r.contLevel

@@ -19,8 +19,10 @@ import (
 // pattern to compile under RE2 after translation. A pattern RE2 rejects is
 // a compile error naming the rule, never a runtime skip.
 func (p *lineParser) checkRegex() error {
-	invariant.Check(p.rec.vallen <= maxString, "pattern length within MAXstring")
-	invariant.Check(p.rec.typ == tRegex, "regex line")
+	if !invariant.Check(p.rec.vallen <= maxString, "pattern length within MAXstring") ||
+		!invariant.Check(p.rec.typ == tRegex, "regex line") {
+		return p.errorf("regex check on a malformed line")
+	}
 	pat := p.rec.valueString()
 	if msg := checkRegexSyntax(pat); msg != "" {
 		return p.errorf(msg + " in regex `" + pat + "'")
@@ -37,7 +39,9 @@ func isWild(c byte) bool { return c == '?' || c == '*' || c == '+' || c == '{' }
 // checkRegexSyntax is funcs.c's check_regex; it returns "" when the pattern
 // passes and the reference's message otherwise.
 func checkRegexSyntax(pat string) string {
-	invariant.Check(len(pat) < maxString, "pattern fits MAXstring")
+	if !invariant.Check(len(pat) < maxString, "pattern fits MAXstring") {
+		return "pattern too long"
+	}
 	var oc byte                     // prevChar
 	for i := 0; i < len(pat); i++ { // patIndex
 		c := pat[i] // patChar
@@ -45,11 +49,8 @@ func checkRegexSyntax(pat string) string {
 			return "repetition-operator operand `" + string(oc) + string(c) + "' invalid"
 		}
 		if c == '{' {
-			if oc == '}' {
-				return "cascading repetition operators"
-			}
-			if !boundsOK(pat, i+1) {
-				return "bounds too large"
+			if msg := braceProblem(pat, i, oc); msg != "" {
+				return msg
 			}
 		}
 		oc = c
@@ -61,10 +62,24 @@ func checkRegexSyntax(pat string) string {
 	return ""
 }
 
+// braceProblem is check_regex's test of the '{' at pat[i] following oc:
+// "" when it passes, the reference's message otherwise.
+func braceProblem(pat string, i int, oc byte) string { // prevChar
+	if oc == '}' {
+		return "cascading repetition operators"
+	}
+	if !boundsOK(pat, i+1) {
+		return "bounds too large"
+	}
+	return ""
+}
+
 // boundsOK checks that an interval's numbers are at most 1000.
 func boundsOK(pat string, i int) bool {
-	invariant.Check(i > 0, "after the brace")
-	invariant.Check(i <= len(pat), "cursor within the pattern")
+	if !invariant.Check(i > 0, "after the brace") ||
+		!invariant.Check(i <= len(pat), "cursor within the pattern") {
+		return false
+	}
 	s := []byte(pat) // patBytes
 	l, end, ok := strtoull(s, i, 10)
 	if ok && l > 1000 {
@@ -90,7 +105,9 @@ func boundsOK(pat string, i int) bool {
 //
 // Leftmost-longest semantics are selected at compile time with Longest().
 func translateRegex(pat string, flags uint32) string {
-	invariant.Check(len(pat) < maxString, "pattern fits MAXstring")
+	if !invariant.Check(len(pat) < maxString, "pattern fits MAXstring") {
+		return regexNever
+	}
 	var b strings.Builder // builder
 	// The reference compiles with REG_NEWLINE: ^ and $ match at line
 	// boundaries and '.' does not match a newline, which is RE2's (?m)
@@ -131,10 +148,16 @@ func translateRegex(pat string, flags uint32) string {
 
 const hexDigits = "0123456789abcdef"
 
+// regexNever is RE2 source that matches nothing: the translation of a
+// pattern that failed a bound, so the line it belongs to never matches.
+const regexNever = `[^\x00-\x{10FFFF}]`
+
 // writeEscape emits an escaped character, mapping GNU word boundaries to
 // RE2's and keeping other escapes verbatim.
 func writeEscape(b *strings.Builder, c byte) { // builder
-	invariant.Check(b != nil, "builder present")
+	if !invariant.Check(b != nil, "builder present") {
+		return
+	}
 	switch c {
 	case '<', '>':
 		b.WriteString(`\b`)
@@ -148,7 +171,9 @@ func writeEscape(b *strings.Builder, c byte) { // builder
 // index of its closing ']'. A ']' first in the set (after an optional '^')
 // is a member, as in POSIX, and a backslash is a member, not an escape.
 func writeBracket(b *strings.Builder, pat string, i int) int { // builder
-	invariant.Check(i < len(pat) && pat[i] == '[', "bracket starts here")
+	if !invariant.Check(i < len(pat) && pat[i] == '[', "bracket starts here") {
+		return i
+	}
 	b.WriteByte('[')
 	j := i + 1 // bracketIndex
 	if at([]byte(pat), j) == '^' {
@@ -187,7 +212,9 @@ func writeBracket(b *strings.Builder, pat string, i int) int { // builder
 // matcher runs RE2 over a byte-to-rune transcoding of the window, so byte
 // 0xNN is rune U+00NN.
 func writeLiteral(b *strings.Builder, c byte) { // literalChar
-	invariant.Check(b != nil, "builder present")
+	if !invariant.Check(b != nil, "builder present") {
+		return
+	}
 	if c < 0x80 {
 		b.WriteByte(c)
 		return
@@ -200,7 +227,9 @@ func writeLiteral(b *strings.Builder, c byte) { // literalChar
 // intervalFollows reports whether pat[i] == '{' begins a valid interval
 // {n}, {n,} or {n,m}; otherwise the brace is a literal in POSIX.
 func intervalFollows(pat string, i int) bool {
-	invariant.Check(i < len(pat) && pat[i] == '{', "brace starts here")
+	if !invariant.Check(i < len(pat) && pat[i] == '{', "brace starts here") {
+		return false
+	}
 	s := []byte(pat) // patBytes
 	j := i + 1       // braceIndex
 	if !cIsDigit(at(s, j)) {
@@ -228,7 +257,9 @@ func intervalFollows(pat string, i int) bool {
 // literal of three bytes or more is preferred to a set. nil when
 // nothing is known.
 func regexLiterals(src string) ([]string, bool, bool) {
-	invariant.Check(src != "", "pattern given")
+	if !invariant.Check(src != "", "pattern given") {
+		return nil, false, false
+	}
 	top, err := syntax.Parse(src, syntax.Perl)
 	if err != nil {
 		return nil, false, false
@@ -248,7 +279,9 @@ func regexLiterals(src string) ([]string, bool, bool) {
 // containedSet is the literal set that must appear anywhere in the
 // region: the longest literal part, or one alternation part's branches.
 func containedSet(subs []*syntax.Regexp) ([]string, bool) {
-	invariant.Check(len(subs) > 0, "parts given")
+	if !invariant.Check(len(subs) > 0, "parts given") {
+		return nil, false
+	}
 	single, singleFold := "", false
 	var set []string
 	setFold := false
@@ -276,7 +309,9 @@ func containedSet(subs []*syntax.Regexp) ([]string, bool) {
 // prefixes of an alternation that follows a lone literal. nil when the
 // pattern is not anchored or does not begin with literals.
 func lineStartSet(subs []*syntax.Regexp) ([]string, bool) {
-	invariant.Check(len(subs) > 0, "parts given")
+	if !invariant.Check(len(subs) > 0, "parts given") {
+		return nil, false
+	}
 	if len(subs) < 2 || subs[0].Op != syntax.OpBeginLine {
 		return nil, false
 	}
@@ -293,7 +328,9 @@ func lineStartSet(subs []*syntax.Regexp) ([]string, bool) {
 	if next.Op != syntax.OpAlternate || more == nil || moreFold != fold {
 		return set, fold
 	}
-	invariant.Check(len(set) == 1, "a literal has one prefix")
+	if !invariant.Check(len(set) == 1, "a literal has one prefix") {
+		return nil, false
+	}
 	joined := make([]string, 0, len(more))
 	for _, m := range more {
 		joined = append(joined, set[0]+m)
@@ -307,10 +344,14 @@ func lineStartSet(subs []*syntax.Regexp) ([]string, bool) {
 // branch of an alternation, or the prefixes of a concatenation's first
 // part.
 func prefixSet(re *syntax.Regexp) ([]string, bool) {
-	invariant.Check(re != nil, "node given")
+	if !invariant.Check(re != nil, "node given") {
+		return nil, false
+	}
 	head := re
 	if re.Op == syntax.OpConcat {
-		invariant.Check(len(re.Sub) > 0, "concatenation has parts")
+		if !invariant.Check(len(re.Sub) > 0, "concatenation has parts") {
+			return nil, false
+		}
 		head = unwrapMandatory(re.Sub[0])
 	}
 	switch head.Op {
@@ -331,8 +372,10 @@ func prefixSet(re *syntax.Regexp) ([]string, bool) {
 // they are few and ASCII; the class already lists both cases of a letter
 // when the pattern folds case, so no folding applies.
 func classLiterals(re *syntax.Regexp) []string {
-	invariant.Check(re.Op == syntax.OpCharClass, "character class")
-	invariant.Check(len(re.Rune)%2 == 0, "ranges come in pairs")
+	if !invariant.Check(re.Op == syntax.OpCharClass, "character class") ||
+		!invariant.Check(len(re.Rune)%2 == 0, "ranges come in pairs") {
+		return nil
+	}
 	var set []string
 	for i := 0; i < len(re.Rune)/2; i++ {
 		lo, hi := re.Rune[2*i], re.Rune[2*i+1]
@@ -349,7 +392,9 @@ func classLiterals(re *syntax.Regexp) []string {
 // branchPrefixes is one prefix literal per branch, or nil when a branch
 // has none, the branches disagree on case folding, or there are too many.
 func branchPrefixes(branches []*syntax.Regexp) ([]string, bool) {
-	invariant.Check(len(branches) >= 2, "an alternation has branches")
+	if !invariant.Check(len(branches) >= 2, "an alternation has branches") {
+		return nil, false
+	}
 	if len(branches) > maxAlternateLiterals {
 		return nil, false
 	}
@@ -377,7 +422,9 @@ func branchPrefixes(branches []*syntax.Regexp) ([]string, bool) {
 // partLiteral is the mandatory literal of one part: the part itself when
 // it is a literal, or the longest literal among a concatenation's parts.
 func partLiteral(re *syntax.Regexp) (string, bool) {
-	invariant.Check(re != nil, "node given")
+	if !invariant.Check(re != nil, "node given") {
+		return "", false
+	}
 	if re.Op == syntax.OpConcat {
 		return directLiteral(re.Sub)
 	}
@@ -387,14 +434,18 @@ func partLiteral(re *syntax.Regexp) (string, bool) {
 // unwrapMandatory looks through nodes whose sub-expression must match:
 // capture groups, plus, and repeats with a minimum of one or more.
 func unwrapMandatory(re *syntax.Regexp) *syntax.Regexp { // regex
-	invariant.Check(re != nil, "node given")
+	if !invariant.Check(re != nil, "node given") {
+		return &syntax.Regexp{Op: syntax.OpNoMatch}
+	}
 	for depth := 0; depth < 8; depth++ {
 		mandatory := re.Op == syntax.OpCapture || re.Op == syntax.OpPlus ||
 			(re.Op == syntax.OpRepeat && re.Min >= 1)
 		if !mandatory {
 			return re
 		}
-		invariant.Check(len(re.Sub) == 1, "a wrapper has one sub")
+		if !invariant.Check(len(re.Sub) == 1, "a wrapper has one sub") {
+			return re
+		}
 		re = re.Sub[0]
 	}
 	return re
@@ -403,7 +454,9 @@ func unwrapMandatory(re *syntax.Regexp) *syntax.Regexp { // regex
 // directLiteral is the longest ASCII literal among the parts of a
 // concatenation, each looked through for mandatory wrappers.
 func directLiteral(subs []*syntax.Regexp) (string, bool) {
-	invariant.Check(len(subs) > 0, "concatenation has parts")
+	if !invariant.Check(len(subs) > 0, "concatenation has parts") {
+		return "", false
+	}
 	best, fold := "", false
 	for _, sub := range subs {
 		if lit, f := asciiLiteral(unwrapMandatory(sub)); len(lit) > len(best) {
@@ -417,7 +470,9 @@ func directLiteral(subs []*syntax.Regexp) (string, bool) {
 // alternation, or nil when a branch has none, the branches disagree on
 // case folding, or there are too many to be worth scanning for.
 func alternateLiterals(branches []*syntax.Regexp) ([]string, bool) {
-	invariant.Check(len(branches) >= 2, "an alternation has branches")
+	if !invariant.Check(len(branches) >= 2, "an alternation has branches") {
+		return nil, false
+	}
 	if len(branches) > maxAlternateLiterals {
 		return nil, false
 	}
@@ -441,7 +496,9 @@ const maxAlternateLiterals = 16
 // cased when the node folds case (the parser stores folded letters as
 // their smallest equivalent, the upper-case ASCII letter).
 func asciiLiteral(re *syntax.Regexp) (string, bool) { // regex
-	invariant.Check(re != nil, "node given")
+	if !invariant.Check(re != nil, "node given") {
+		return "", false
+	}
 	if re.Op != syntax.OpLiteral || len(re.Rune) == 0 {
 		return "", false
 	}

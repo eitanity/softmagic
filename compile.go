@@ -96,8 +96,10 @@ func CompileSources(hash string, srcs []Source, o CompileOptions) (*Database, er
 
 // loadFile is load_1: parse one rule file into entries.
 func (c *compiler) loadFile(name string, data []byte) error {
-	invariant.Check(c.cur == nil, "no entry carried over between files")
-	invariant.Check(name != "", "rule file has a name")
+	if !invariant.Check(c.cur == nil, "no entry carried over between files") ||
+		!invariant.Check(name != "", "rule file has a name") {
+		return &CompileError{File: c.sourceDir + "/" + name, Line: 0, Msg: "rule file read out of sequence"}
+	}
 	file := c.sourceDir + "/" + name
 	lineno := uint32(0)
 	var end int
@@ -119,22 +121,25 @@ func (c *compiler) loadFile(name string, data []byte) error {
 			return err
 		}
 	}
-	c.flush()
-	return nil
+	return c.flush()
 }
 
 // loadLine dispatches one non-comment line to the annotation or rule parser.
 func (c *compiler) loadLine(file string, lineno uint32, line []byte) error {
 	// A final line with no newline keeps the previous line number, as the
 	// reference counts (a one-line file without a newline is line 0).
-	invariant.Check(len(line) > 0 && line[0] != '#', "parsable line")
+	if !invariant.Check(len(line) > 0 && line[0] != '#', "parsable line") {
+		return &CompileError{File: file, Line: int(lineno), Msg: "empty or comment line parsed"}
+	}
 	p := lineParser{line: line, file: file, lineno: lineno, tables: &c.tables, dump: c.dump} // parser
 	if len(line) >= 2 && line[0] == '!' && line[1] == ':' {
 		return c.annotate(&p)
 	}
 	level := p.parseContLevel()
 	if level == 0 {
-		c.flush()
+		if err := c.flush(); err != nil {
+			return err
+		}
 		c.cur = &pending{lines: make([]lineRec, 1, 4), file: c.fileIdx}
 		c.curSet = 0
 	} else {
@@ -163,27 +168,44 @@ func (c *compiler) loadLine(file string, lineno uint32, line []byte) error {
 // annotations follow its lines), so its first line gets its test type,
 // the sort image is taken, the lines become records and the entry joins
 // its set.
-func (c *compiler) flush() {
+func (c *compiler) flush() error {
 	if c.cur == nil {
-		return
+		return nil
 	}
-	invariant.Check(len(c.cur.lines) > 0, "entry has a first line")
-	invariant.Check(c.cur.recs == nil, "entry not yet flushed")
+	if !invariant.Check(len(c.cur.lines) > 0, "entry has a first line") ||
+		!invariant.Check(c.cur.recs == nil, "entry not yet flushed") {
+		return c.fault("entry flushed out of sequence")
+	}
 	setTestType(&c.cur.lines[0])
 	c.cur.lines[0].image(&c.cur.image)
 	c.cur.recs = make([]record, len(c.cur.lines))
 	for i := range c.cur.lines {
-		c.cur.recs[i] = c.cur.lines[i].intern(&c.arena)
+		rec, ok := c.cur.lines[i].intern(&c.arena)
+		if !ok {
+			return c.fault("line value out of bounds")
+		}
+		c.cur.recs[i] = rec
 	}
 	c.cur.lines = nil
 	c.cur.strength = entryStrength(&c.cur.recs[0])
 	c.sets[c.curSet] = append(c.sets[c.curSet], *c.cur)
 	c.cur = nil
+	return nil
+}
+
+// fault is the error for state the compiler itself left inconsistent.
+func (c *compiler) fault(msg string) error {
+	if n := len(c.files); n > 0 {
+		return &CompileError{File: c.sourceDir + "/" + c.files[n-1], Line: 0, Msg: msg}
+	}
+	return &CompileError{File: c.sourceDir, Line: 0, Msg: msg}
 }
 
 // finish sets test types, sorts each set and coalesces into a Database.
 func (c *compiler) finish() (*Database, error) {
-	invariant.Check(c.cur == nil, "no entry under construction at finish")
+	if !invariant.Check(c.cur == nil, "no entry under construction at finish") {
+		return nil, c.fault("entry left under construction")
+	}
 	db := &Database{ // database
 		hash: c.hash, sourceDir: c.sourceDir,
 		files: c.files, names: map[string]entry{}, pool: newScanPool(),
@@ -200,7 +222,9 @@ func (c *compiler) finish() (*Database, error) {
 			if s == 1 {
 				db.names[ents[i].recs[0].valueString()] = e
 			}
-			c.appendLines(db, &ents[i])
+			if err := c.appendLines(db, &ents[i]); err != nil {
+				return nil, err
+			}
 		}
 		if s == 0 {
 			m.count = smallInt32(len(db.recs))
@@ -215,8 +239,10 @@ func (c *compiler) finish() (*Database, error) {
 }
 
 // appendLines adds an entry's lines and their Go-side metadata.
-func (c *compiler) appendLines(db *Database, p *pending) { // database
-	invariant.Check(len(p.recs) > 0 && p.recs[0].contLevel == 0, "entry starts with a first line")
+func (c *compiler) appendLines(db *Database, p *pending) error { // database
+	if !invariant.Check(len(p.recs) > 0 && p.recs[0].contLevel == 0, "entry starts with a first line") {
+		return c.fault("entry does not start with a first line")
+	}
 	for i := range p.recs {
 		r := &p.recs[i] // lineRec
 		meta := lineMeta{file: p.file, rx: -1}
@@ -228,12 +254,15 @@ func (c *compiler) appendLines(db *Database, p *pending) { // database
 		db.recs = append(db.recs, *r)
 		db.meta = append(db.meta, meta)
 	}
+	return nil
 }
 
 // checkUses verifies every "use" names a compiled "name" entry, which the
 // reference only discovers at match time.
 func (c *compiler) checkUses(db *Database) error { // database
-	invariant.Check(len(db.recs) == len(db.meta), "meta parallel to records")
+	if !invariant.Check(len(db.recs) == len(db.meta), "meta parallel to records") {
+		return c.fault("record metadata out of step")
+	}
 	for i := range db.recs { // recIndex
 		r := &db.recs[i] // lineRec
 		if r.typ != tUse {
@@ -285,7 +314,9 @@ func imageGreater(a, b *[recordSize]byte) bool {
 // the only line the reference consults (its loop runs over entries whose
 // first line always has cont_level 0).
 func setTestType(r *lineRec) { // lineRec
-	invariant.Check(r.contLevel == 0, "test type set on a first line")
+	if !invariant.Check(r.contLevel == 0, "test type set on a first line") {
+		return
+	}
 	switch {
 	case isFixedWidth(r.typ) || r.typ == tDer || r.typ == tOctal:
 		r.flag |= flagBinTest
@@ -304,13 +335,18 @@ func setTestType(r *lineRec) { // lineRec
 			r.flag |= flagBinTest
 			return
 		}
-		if looksUTF8(r.valueBytes()) <= 0 {
-			r.flag |= flagBinTest
-		} else {
-			r.flag |= flagTextTest
-		}
+		r.flag |= patternTestType(r)
 	default: // default, name, use, clear, indirect: no class
 	}
+}
+
+// patternTestType is the class of a regex or search line with neither /b
+// nor /t: text when its pattern looks like UTF-8, binary otherwise.
+func patternTestType(r *lineRec) uint16 { // lineRec
+	if looksUTF8(r.valueBytes()) <= 0 {
+		return flagBinTest
+	}
+	return flagTextTest
 }
 
 // annotate handles a "!:" line: mime, apple, ext or strength.
@@ -374,7 +410,9 @@ func goodChar(c byte, extra string) bool {
 // line's field, refusing a second annotation of the same kind and an
 // annotation on a line with no description.
 func (c *compiler) parseExtra(p *lineParser, k extraKind) error { // parser
-	invariant.Check(len(c.cur.lines) > 0, "annotated entry has lines")
+	if !invariant.Check(len(c.cur.lines) > 0, "annotated entry has lines") {
+		return p.errorf("annotation with no current line")
+	}
 	r := &c.cur.lines[len(c.cur.lines)-1]
 	buf, extra, nulTerm := extraField(r, k)
 	if buf[0] != 0 {
@@ -401,7 +439,9 @@ func (c *compiler) parseExtra(p *lineParser, k extraKind) error { // parser
 // parseStrength is parse_strength: "!:strength OP VALUE" on the entry's
 // first line.
 func (c *compiler) parseStrength(p *lineParser) error { // parser
-	invariant.Check(len(c.cur.lines) > 0, "annotated entry has lines")
+	if !invariant.Check(len(c.cur.lines) > 0, "annotated entry has lines") {
+		return p.errorf("annotation with no current line")
+	}
 	r := &c.cur.lines[0] // firstLine
 	if r.factorOp != 0 {
 		return p.errorf("current entry already has a strength type: " + string(r.factorOp) +

@@ -44,7 +44,9 @@ func (p *jsonParser) skipSpace() {
 // detectJSON is file_is_json: 1 for one JSON document, 2 for newline
 // delimited JSON (a second document of the same kind follows), else none.
 func detectJSON(buf []byte) builtinResult {
-	invariant.Check(len(buf) >= 2, "detectors run on two or more bytes")
+	if !invariant.Check(len(buf) >= 2, "detectors run on two or more bytes") {
+		return builtinResult{}
+	}
 	p := jsonParser{uc: buf}
 	jt := p.parseTop()
 	switch jt {
@@ -85,7 +87,9 @@ func (p *jsonParser) parseTop() int {
 // explicit stack. It returns whether the value was well formed, leaving
 // the cursor after it (or where the reference leaves it on failure).
 func (p *jsonParser) parseValue() bool {
-	invariant.Check(p.depth == 0, "a top-level value starts with an empty stack")
+	if !invariant.Check(p.depth == 0, "a top-level value starts with an empty stack") {
+		return false
+	}
 	for steps := 0; steps <= len(p.uc)+jsonMaxDepth; steps++ {
 		ok, done := p.step()
 		if !ok {
@@ -133,14 +137,18 @@ func (p *jsonParser) step() (ok, done bool) {
 }
 
 func (p *jsonParser) closeArray() (ok, done bool) {
-	invariant.Check(p.depth > 0 && !p.stack[p.depth-1].object, "closing an open array")
+	if !invariant.Check(p.depth > 0 && !p.stack[p.depth-1].object, "closing an open array") {
+		return false, false
+	}
 	p.i++
 	p.arrays++
 	return p.closeFrame()
 }
 
 func (p *jsonParser) closeObject() (ok, done bool) {
-	invariant.Check(p.depth > 0 && p.stack[p.depth-1].object, "closing an open object")
+	if !invariant.Check(p.depth > 0 && p.stack[p.depth-1].object, "closing an open object") {
+		return false, false
+	}
 	p.i++
 	p.objs++
 	return p.closeFrame()
@@ -267,7 +275,9 @@ func (p *jsonParser) parseEscape() bool {
 
 // parseConst is json_parse_const: the keyword's remaining letters.
 func (p *jsonParser) parseConst(word string) bool {
-	invariant.Check(len(word) >= 4, "keyword")
+	if !invariant.Check(len(word) >= 4, "keyword") {
+		return false
+	}
 	end := p.i + len(word)
 	if end > len(p.uc) {
 		end = len(p.uc)
@@ -316,7 +326,9 @@ func (p *jsonParser) parseNumber() bool {
 
 // digits consumes decimal digits and reports whether there was one.
 func (p *jsonParser) digits() bool {
-	invariant.Check(p.i >= 0 && p.i <= len(p.uc), "cursor within the input")
+	if !invariant.Check(p.i >= 0 && p.i <= len(p.uc), "cursor within the input") {
+		return false
+	}
 	start := p.i
 	for ; p.i < len(p.uc) && cIsDigit(p.uc[p.i]); p.i++ {
 	}

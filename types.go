@@ -157,7 +157,9 @@ func typeTableRows() [numTypes]typeEntry {
 // lookupType is get_type: the first table row whose name is a prefix of s.
 // It returns the type and the number of bytes consumed, 0 when none matched.
 func lookupType(table []typeEntry, s []byte) (fileType, int) {
-	invariant.Check(len(table) > 0, "table has rows")
+	if !invariant.Check(len(table) > 0, "table has rows") {
+		return tInvalid, 0
+	}
 	for i := range table {
 		if hasPrefix(s, table[i].name) {
 			return table[i].typ, len(table[i].name)

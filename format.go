@@ -51,7 +51,9 @@ func formatProblem(t fileType, d []byte) string { // fileType, description
 // checkFormatType validates the conversion starting at d[i] (after '%') and
 // returns the index after it.
 func checkFormatType(d []byte, i int, t fileType) (int, bool) { // fileType
-	invariant.Check(i > 0, "conversion follows a percent")
+	if !invariant.Check(i > 0, "conversion follows a percent") {
+		return i, false
+	}
 	if at(d, i) == 0 {
 		return i, false
 	}
@@ -85,8 +87,10 @@ func numFormatH(t fileType) int {
 
 // checkLen is the CHECKLEN macro: at most five digits, value at most 1024.
 func checkLen(d []byte, i int) (int, bool) { // cursor
-	invariant.Check(i >= 0, "cursor non-negative")
-	invariant.Check(i <= len(d), "cursor within the description")
+	if !invariant.Check(i >= 0, "cursor non-negative") ||
+		!invariant.Check(i <= len(d), "cursor within the description") {
+		return i, false
+	}
 	n, cnt := 0, 0
 	for ; i < len(d) && cIsDigit(d[i]); i++ {
 		n = n*10 + int(d[i]-'0')
@@ -96,8 +100,10 @@ func checkLen(d []byte, i int) (int, bool) { // cursor
 }
 
 func checkNumFormat(d []byte, i int, quad bool, h int) (int, bool) { // sizeClass
-	invariant.Check(i >= 0, "cursor non-negative")
-	invariant.Check(i <= len(d), "cursor within the description")
+	if !invariant.Check(i >= 0, "cursor non-negative") ||
+		!invariant.Check(i <= len(d), "cursor within the description") {
+		return i, false
+	}
 	for ; i < len(d) && isNumFlag(d[i]); i++ {
 	}
 	i, ok := checkLen(d, i) // valid
@@ -128,8 +134,10 @@ func checkNumFormat(d []byte, i int, quad bool, h int) (int, bool) { // sizeClas
 }
 
 func checkFloatFormat(d []byte, i int) (int, bool) { // description
-	invariant.Check(i >= 0, "cursor non-negative")
-	invariant.Check(i <= len(d), "cursor within the description")
+	if !invariant.Check(i >= 0, "cursor non-negative") ||
+		!invariant.Check(i <= len(d), "cursor within the description") {
+		return i, false
+	}
 	if at(d, i) == '-' {
 		i++
 	}
@@ -158,8 +166,10 @@ func checkFloatFormat(d []byte, i int) (int, bool) { // description
 func isNumFlag(c byte) bool { return c == '+' || c == '-' || c == '.' || c == '#' }
 
 func checkStrFormat(d []byte, i int) (int, bool) { // description
-	invariant.Check(i >= 0, "cursor non-negative")
-	invariant.Check(i <= len(d), "cursor within the description")
+	if !invariant.Check(i >= 0, "cursor non-negative") ||
+		!invariant.Check(i <= len(d), "cursor within the description") {
+		return i, false
+	}
 	if at(d, i) == '-' {
 		i++
 	}

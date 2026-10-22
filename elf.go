@@ -242,7 +242,10 @@ type elfPhdr struct {
 }
 
 func (e *elfState) parsePhdr(b []byte) elfPhdr { // headerBytes
-	invariant.Check(len(b) >= e.phdrSize(), "program header complete")
+	if !invariant.Check(len(b) >= e.phdrSize(), "program header complete") {
+		e.s.truncate(TruncInvariant)
+		return elfPhdr{}
+	}
 	var p elfPhdr // programHeader
 	p.typ = e.u32(b[0:])
 	if e.class == elfClass32 {
@@ -269,7 +272,10 @@ type phdrState struct {
 // phdrExec is dophn_exec: linking, interpreter and notes from the program
 // headers.
 func (e *elfState) phdrExec(off int64, num, size int, haveSections bool) {
-	invariant.Check(off >= 0, "program header offset non-negative")
+	if !invariant.Check(off >= 0, "program header offset non-negative") {
+		e.s.truncate(TruncInvariant)
+		return
+	}
 	if num == 0 {
 		e.printf(", no program header")
 		return
@@ -296,7 +302,10 @@ func (e *elfState) phdrExec(off int64, num, size int, haveSections bool) {
 
 // phdrEntry handles one program header; false ends the walk.
 func (e *elfState) phdrEntry(st *phdrState, ph *elfPhdr, haveSections bool) bool { // phdrWalk
-	invariant.Check(ph.align >= 4 || ph.align&0x80000000 != 0 || ph.align < 4, "alignment read")
+	if !invariant.Check(ph.align >= 4 || ph.align&0x80000000 != 0 || ph.align < 4, "alignment read") {
+		e.s.truncate(TruncInvariant)
+		return false
+	}
 	switch ph.typ {
 	case ptDynamic:
 		data, ok := e.readSegment(ph)
@@ -372,7 +381,10 @@ func (e *elfState) linking(dynamic, pie bool, need int, interp string) {
 
 // dynamic is the dodynamic loop over a PT_DYNAMIC segment.
 func (e *elfState) dynamic(data []byte, pie bool, need int) (bool, int) {
-	invariant.Check(need >= 0, "needed count non-negative")
+	if !invariant.Check(need >= 0, "needed count non-negative") {
+		e.s.truncate(TruncInvariant)
+		return false, 0
+	}
 	e.s.execBit = false // let DF_1 decide
 	size := 8
 	if e.class == elfClass64 {
@@ -441,7 +453,10 @@ type elfShdr struct {
 }
 
 func (e *elfState) parseShdr(b []byte) elfShdr { // headerBytes
-	invariant.Check(len(b) >= e.shdrSize(), "section header complete")
+	if !invariant.Check(len(b) >= e.shdrSize(), "section header complete") {
+		e.s.truncate(TruncInvariant)
+		return elfShdr{}
+	}
 	var sh elfShdr // sectionHeader
 	sh.name, sh.typ = e.u32(b[0:]), e.u32(b[4:])
 	if e.class == elfClass32 {
@@ -554,7 +569,10 @@ func (e *elfState) noteSection(sh *elfShdr) bool { // sectionHeader
 
 // sectionSummary prints what doshn concludes after the walk.
 func (e *elfState) sectionSummary(st *shdrState) { // shdrWalk
-	invariant.Check(st.nbadcap >= 0, "bad capability count non-negative")
+	if !invariant.Check(st.nbadcap >= 0, "bad capability count non-negative") {
+		e.s.truncate(TruncInvariant)
+		return
+	}
 	if st.hasDebugInfo {
 		e.printf(", with debug_info")
 	}
@@ -577,7 +595,10 @@ func (s *scan) inputSize() int64 {
 // readAt returns exactly n bytes at off from the input: the window, or
 // the IdentifyAt reader beyond it.
 func (s *scan) readAt(off int64, n int) ([]byte, bool) { // length
-	invariant.Check(n >= 0, "length non-negative")
+	if !invariant.Check(n >= 0, "length non-negative") {
+		s.truncate(TruncInvariant)
+		return nil, false
+	}
 	if off < 0 || n > elfShsizeMax || off > s.inputSize() {
 		s.oobHit = true
 		return nil, false
@@ -603,7 +624,10 @@ func (s *scan) readAt(off int64, n int) ([]byte, bool) { // length
 // readUpTo returns up to n bytes at off, short at the end of the input as
 // pread is; false only when nothing can be read.
 func (s *scan) readUpTo(off int64, n int) ([]byte, bool) { // maxLength
-	invariant.Check(n >= 0, "length non-negative")
+	if !invariant.Check(n >= 0, "length non-negative") {
+		s.truncate(TruncInvariant)
+		return nil, false
+	}
 	size := s.inputSize()
 	if off < 0 || off >= size {
 		if off == size {

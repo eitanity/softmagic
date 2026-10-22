@@ -82,7 +82,9 @@ type regexSlot struct {
 
 // regexSlot is the slot of a regex line, nil when it has none.
 func (db *Database) regexSlot(rec int32) *regexSlot {
-	invariant.Check(len(db.meta) == len(db.recs), "meta parallel to records")
+	if !invariant.Check(len(db.meta) == len(db.recs), "meta parallel to records") {
+		return nil
+	}
 	if rec < 0 || int(rec) >= len(db.meta) || db.meta[rec].rx < 0 {
 		return nil
 	}
@@ -109,7 +111,9 @@ func (db *Database) regex(rec int32) *regexp.Regexp {
 // compilePattern compiles a validated pattern with the reference's
 // leftmost-longest semantics; nil only for a pattern Compile never saw.
 func compilePattern(pattern string) *regexp.Regexp {
-	invariant.Check(pattern != "", "pattern given")
+	if !invariant.Check(pattern != "", "pattern given") {
+		return nil
+	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil
@@ -121,7 +125,9 @@ func compilePattern(pattern string) *regexp.Regexp {
 // precompile compiles every regex now and marks the database eager: no
 // lazy work remains, no allocation follows initialisation, and a call's latency no longer depends on which rules it reaches.
 func (db *Database) precompile() *Database {
-	invariant.Check(db != nil, "database given")
+	if !invariant.Check(db != nil, "database given") {
+		return db
+	}
 	for i := range db.regexes {
 		slot := &db.regexes[i]
 		if slot.re == nil {
@@ -135,8 +141,12 @@ func (db *Database) precompile() *Database {
 // addRegex appends a pattern slot and returns its index. The slot is
 // grown in place so no sync.Once is ever copied.
 func (db *Database) addRegex(pattern string, lits []string, fold, lineStart bool, re *regexp.Regexp) int32 {
-	invariant.Check(pattern != "", "pattern given")
-	invariant.Check(len(lits) > 0 || (!fold && !lineStart), "flags only with literals")
+	if !invariant.Check(pattern != "", "pattern given") {
+		pattern, re = regexNever, nil
+	}
+	if !invariant.Check(len(lits) > 0 || (!fold && !lineStart), "flags only with literals") {
+		fold, lineStart = false, false
+	}
 	db.regexes = append(db.regexes, regexSlot{})
 	slot := &db.regexes[len(db.regexes)-1]
 	slot.pattern, slot.fold, slot.lineStart, slot.re = pattern, fold, lineStart, re
@@ -148,7 +158,9 @@ func (db *Database) addRegex(pattern string, lits []string, fold, lineStart bool
 
 // litStrings is a slot's literal set as strings.
 func (r *regexSlot) litStrings() []string {
-	invariant.Check(r != nil, "slot given")
+	if !invariant.Check(r != nil, "slot given") {
+		return nil
+	}
 	out := make([]string, 0, len(r.lits))
 	for _, lit := range r.lits {
 		out = append(out, string(lit))
@@ -158,7 +170,9 @@ func (r *regexSlot) litStrings() []string {
 
 // Entries is the number of top-level entries in all sets of all maps.
 func (db *Database) Entries() int {
-	invariant.Check(len(db.maps) > 0, "a database has a map")
+	if !invariant.Check(len(db.maps) > 0, "a database has a map") {
+		return 0
+	}
 	n := 0
 	for i := range db.maps {
 		n += len(db.maps[i].sets[0]) + len(db.maps[i].sets[1])
@@ -196,7 +210,9 @@ func (db *Database) Lines() int { return len(db.recs) }
 // the same Magdir; the tests compare the two in full, which is what proves
 // the matching order.
 func (db *Database) List() string {
-	invariant.Check(len(db.recs) == len(db.meta), "meta parallel to records")
+	if !invariant.Check(len(db.recs) == len(db.meta), "meta parallel to records") {
+		return ""
+	}
 	var b strings.Builder    // builder
 	for s := 0; s < 2; s++ { // setIndex
 		b.WriteString("Set " + strconv.Itoa(s) + ":\nBinary patterns:\n")
@@ -213,7 +229,9 @@ func (db *Database) List() string {
 
 // listSet is apprentice_list for one set and one mode flag.
 func (db *Database) listSet(b *strings.Builder, m *dbMap, s int, mode uint16) { // builder
-	invariant.Check(mode == flagBinTest || mode == flagTextTest, "mode is one class")
+	if !invariant.Check(mode == flagBinTest || mode == flagTextTest, "mode is one class") {
+		return
+	}
 	for _, e := range m.sets[s] {
 		lines := db.recs[e.first : e.first+e.count]
 		first := &lines[0]
@@ -239,7 +257,9 @@ func (db *Database) listSet(b *strings.Builder, m *dbMap, s int, mode uint16) { 
 
 // pad3 is printf("%3d").
 func pad3(n int) string {
-	invariant.Check(n >= 0, "strength non-negative")
+	if !invariant.Check(n >= 0, "strength non-negative") {
+		return ""
+	}
 	s := strconv.Itoa(n)
 	for n := len(s); n < 3; n++ {
 		s = " " + s
@@ -304,7 +324,9 @@ func (db *Database) Join(extra *Database, hash string) (*Database, error) {
 
 // shiftMaps copies maps with their line indexes moved by shift.
 func shiftMaps(maps []dbMap, shift int32) []dbMap {
-	invariant.Check(shift >= 0, "shift non-negative")
+	if !invariant.Check(shift >= 0, "shift non-negative") {
+		return nil
+	}
 	out := make([]dbMap, len(maps))
 	for i := range maps { // mapIndex
 		out[i].first, out[i].count = maps[i].first+shift, maps[i].count

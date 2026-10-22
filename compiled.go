@@ -78,7 +78,8 @@ func (e *LoadError) Error() string { return "softmagic: compiled database: " + e
 
 // enc appends the format's primitives to a byte slice.
 type enc struct {
-	b []byte
+	b   []byte
+	bad bool // a field exceeded its length prefix; Marshal refuses
 }
 
 func (e *enc) u8(v uint8)   { e.b = append(e.b, v) }
@@ -87,7 +88,10 @@ func (e *enc) u32(v uint32) { e.b = binary.LittleEndian.AppendUint32(e.b, v) }
 func (e *enc) u64(v uint64) { e.b = binary.LittleEndian.AppendUint64(e.b, v) }
 
 func (e *enc) str(s string) {
-	invariant.Check(len(s) <= 0xffff, "string fits a u16 length")
+	if len(s) > 0xffff { // a caller's SourceDir or file name can be longer
+		e.bad = true
+		return
+	}
 	e.u16(low16(bitsOfInt64(int64(len(s)))))
 	e.b = append(e.b, s...)
 }
@@ -98,7 +102,10 @@ func (e *enc) trimmed(a []byte) { // fixedArray
 	n := len(a)
 	for ; n > 0 && a[n-1] == 0; n-- {
 	}
-	invariant.Check(n <= 0xff, "array fits a u8 length")
+	if !invariant.Check(n <= 0xff, "array fits a u8 length") {
+		e.bad = true
+		return
+	}
 	e.u8(low8(bitsOfInt64(int64(n))))
 	e.b = append(e.b, a[:n]...)
 }
@@ -145,6 +152,9 @@ func (db *Database) Marshal() ([]byte, error) {
 		}
 		e.u8(boolByte(slot.fold)<<1 | boolByte(slot.lineStart))
 	}
+	if e.bad {
+		return nil, &LoadError{Msg: "field too long to serialise"}
+	}
 	return e.b, nil
 }
 
@@ -157,8 +167,11 @@ func boolByte(b bool) uint8 {
 
 // record appends one rule line.
 func (e *enc) record(r *record, file int32) { // record
-	invariant.Check(file >= 0 && file <= 0xffff, "file index fits a u16")
-	invariant.Check(r.vallen <= maxString, "value length within MAXstring")
+	if file < 0 || file > 0xffff || // more than 65536 source files
+		!invariant.Check(r.vallen <= maxString, "value length within MAXstring") {
+		e.bad = true
+		return
+	}
 	e.u16(r.flag)
 	e.u8(r.contLevel)
 	e.u8(r.factor)
@@ -194,7 +207,10 @@ type dec struct {
 // count reads a table length and refuses one above limit while it is
 // still unsigned, so a 32-bit int never has to hold it.
 func (d *dec) count(limit int) (int, bool) {
-	invariant.Check(limit >= 0 && limit <= maxCompiledRecords, "limit within the record bound")
+	if !invariant.Check(limit >= 0 && limit <= maxCompiledRecords, "limit within the record bound") {
+		d.err = true
+		return 0, false
+	}
 	v := d.u32()
 	if uint64(v) > bitsOfInt64(int64(limit)) {
 		return 0, false
@@ -252,7 +268,10 @@ func (d *dec) str() string {
 // slice of the data itself, so loading copies nothing; a value shorter
 // than need is copied into the arena with zero padding instead.
 func (d *dec) field(max, need int) []byte {
-	invariant.Check(max > 0 && max <= maxString, "field bound is a struct magic array size")
+	if !invariant.Check(max > 0 && max <= maxString, "field bound is a struct magic array size") {
+		d.err = true
+		return nil
+	}
 	n := int(d.u8()) // fieldLength
 	if n > max || !d.need(n) {
 		d.err = true
@@ -474,7 +493,10 @@ const recordScalarSize = 2 + 10 + 4 + 4 + 4 + 8 + 2
 // scalars reads a record's fixed part with one bounds check and returns
 // the file index.
 func (d *dec) scalars(r *record) int { // record
-	invariant.Check(r != nil, "record to fill")
+	if !invariant.Check(r != nil, "record to fill") {
+		d.err = true
+		return 0
+	}
 	if !d.need(recordScalarSize) {
 		return 0
 	}
@@ -515,7 +537,9 @@ func checkSets(db *Database) error { // database
 
 // registerName adds a "name" entry unless an earlier map defined it.
 func registerName(db *Database, e entry) {
-	invariant.Check(db.recs[e.first].typ == tName, "name entry")
+	if !invariant.Check(db.recs[e.first].typ == tName, "name entry") {
+		return
+	}
 	name := db.recs[e.first].valueString()
 	if _, dup := db.names[name]; !dup {
 		db.names[name] = e
@@ -525,7 +549,9 @@ func registerName(db *Database, e entry) {
 // checkMap verifies one map's entry tables from line index expect and
 // registers its names (the first map to define a name wins).
 func checkMap(db *Database, m *dbMap, expect int32) (int32, error) { // dbMap
-	invariant.Check(expect >= 0, "line index non-negative")
+	if !invariant.Check(expect >= 0, "line index non-negative") {
+		return 0, &LoadError{Msg: "map table inconsistent with records"}
+	}
 	for s := 0; s < 2; s++ { // setIndex
 		for _, e := range m.sets[s] { // entry
 			if msg := entryProblem(db, e, expect, s); msg != "" {

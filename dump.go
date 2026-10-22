@@ -45,9 +45,13 @@ const dumpOps = "&|^+-*/%"
 
 // mdump is file_mdump for the line just parsed.
 func (p *lineParser) mdump(b *strings.Builder) { // builder
-	invariant.Check(b != nil && p.rec != nil, "a dump of a parsed line")
+	if !invariant.Check(b != nil && p.rec != nil, "a dump of a parsed line") {
+		return
+	}
 	r := p.rec // lineRec
-	invariant.Check(r.desc[maxDesc-1] == 0, "description terminated")
+	if !invariant.Check(r.desc[maxDesc-1] == 0, "description terminated") {
+		return
+	}
 	if r.desc[0] == 0 {
 		b.WriteString(cString(r.desc[1:])) // the file name tucked in after the NUL
 	} else {
@@ -82,7 +86,9 @@ func (p *lineParser) mdump(b *strings.Builder) { // builder
 
 // typeName is file_names[t]: type_tbl's name for the type.
 func (p *lineParser) typeName(t fileType) string {
-	invariant.Check(p.tables != nil, "type tables")
+	if !invariant.Check(p.tables != nil, "type tables") {
+		return "*bad type"
+	}
 	for _, e := range p.tables.types {
 		if e.typ == t && e.name != "" {
 			return e.name
@@ -94,7 +100,9 @@ func (p *lineParser) typeName(t fileType) string {
 // dumpModifiers is the string flags and range, or the mask operator and
 // mask, after the type.
 func dumpModifiers(b *strings.Builder, r *recordHead) { // builder
-	invariant.Check(b != nil, "dump buffer")
+	if !invariant.Check(b != nil, "dump buffer") {
+		return
+	}
 	if !isString(r.typ) {
 		b.WriteByte(dumpOps[r.maskOp&opsMask])
 		if r.maskOrStr != 0 {
@@ -126,7 +134,9 @@ func dumpModifiers(b *strings.Builder, r *recordHead) { // builder
 
 // dumpValue is the value as file_mdump prints it for the line's type.
 func dumpValue(b *strings.Builder, r *lineRec) { // builder
-	invariant.Check(b != nil && r != nil, "dump of a value")
+	if !invariant.Check(b != nil && r != nil, "dump of a value") {
+		return
+	}
 	v := r.value[:] // value
 	switch r.typ {
 	case tByte, tShort, tLong, tLeShort, tLeLong, tMeLong, tBeShort, tBeLong, tIndirect:
@@ -166,7 +176,9 @@ func dumpValue(b *strings.Builder, r *lineRec) { // builder
 // showStr is file_showstr: printable ASCII as itself, the C escapes by
 // letter, anything else as three octal digits.
 func showStr(b *strings.Builder, s []byte) { // builder
-	invariant.Check(len(s) <= maxString, "string value within MAXstring")
+	if !invariant.Check(len(s) <= maxString, "string value within MAXstring") {
+		return
+	}
 	const letters = "\a\b\f\n\r\t\v"
 	for _, c := range s { // char
 		switch i := strings.IndexByte(letters, c); {
@@ -185,7 +197,9 @@ func showStr(b *strings.Builder, s []byte) { // builder
 // The little-endian form shifts once more after its last byte, as the
 // reference's loop does.
 func varint(v []byte, le bool) uint64 { // littleEndian
-	invariant.Check(len(v) >= valueMin, "value holds its minimum")
+	if !invariant.Check(len(v) >= valueMin, "value holds its minimum") {
+		return 0
+	}
 	n := indexByteFrom(v, 0, 0) // valueLength
 	if n < 0 {
 		n = len(v)

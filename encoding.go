@@ -101,11 +101,15 @@ func (e encoding) isText() bool { return e.kind != encBinary }
 // classify is file_encoding over at most limit bytes of buf (the
 // reference's encoding_max).
 func classify(buf []byte, limit int) encoding {
-	invariant.Check(limit >= 0 && limit <= encodingLimitMax, "encoding limit resolved")
+	if !invariant.Check(limit >= 0 && limit <= encodingLimitMax, "encoding limit resolved") {
+		return encoding{}
+	}
 	if len(buf) > limit {
 		buf = buf[:limit]
 	}
-	invariant.Check(len(buf) <= encodingLimitMax, "classified window bounded")
+	if !invariant.Check(len(buf) <= encodingLimitMax, "classified window bounded") {
+		return encoding{}
+	}
 	e := encoding{n: len(buf)} // textEncoding
 	switch {
 	case looksClass(buf, chT):
@@ -133,7 +137,9 @@ func classify(buf []byte, limit int) encoding {
 
 // unicodeKind maps a looks_ucs* result (1 little-endian, 2 big-endian).
 func unicodeKind(le, be encodingKind, r int) encodingKind {
-	invariant.Check(r == 1 || r == 2, "endianness result")
+	if !invariant.Check(r == 1 || r == 2, "endianness result") {
+		return encBinary
+	}
 	if r == 2 {
 		return be
 	}
@@ -143,7 +149,9 @@ func unicodeKind(le, be encodingKind, r int) encodingKind {
 // looksClass is the LOOKS macro: every byte's text class is at most max
 // (T for ASCII, I for Latin-1, X for extended).
 func looksClass(buf []byte, maxClass uint8) bool {
-	invariant.Check(maxClass >= chT && maxClass <= chX, "class bound")
+	if !invariant.Check(maxClass >= chT && maxClass <= chX, "class bound") {
+		return false
+	}
 	for i := 0; i < len(buf); i++ {
 		t := textChars[buf[i]]
 		if t == chF || t > maxClass {
@@ -204,7 +212,9 @@ func looksUCS16(bf []byte) int { // window
 // ucs16Unit validates one UTF-16 unit given a pending high surrogate and
 // returns the character, the new pending surrogate and whether it is text.
 func ucs16Unit(uc, hi uint32) (uint32, uint32, bool) { // codeUnit
-	invariant.Check(hi <= 0x400, "pending surrogate index in range")
+	if !invariant.Check(hi <= 0x400, "pending surrogate index in range") {
+		return 0, 0, false
+	}
 	if uc == 0xfffe || uc == 0xffff || (uc >= 0xfdd0 && uc <= 0xfdef) {
 		return 0, 0, false
 	}
@@ -262,7 +272,9 @@ func ucs32At(bf []byte, i int, be bool) uint32 {
 
 // looksEBCDIC classifies through the EBCDIC-to-ASCII table.
 func looksEBCDIC(buf []byte) encodingKind {
-	invariant.Check(len(buf) <= encodingLimitMax, "classified window bounded")
+	if !invariant.Check(len(buf) <= encodingLimitMax, "classified window bounded") {
+		return encBinary
+	}
 	ascii, latin1 := true, true
 	for i := 0; i < len(buf) && latin1; i++ {
 		t := textChars[ebcdicToASCII[buf[i]]]
@@ -311,7 +323,9 @@ type textDecoder struct {
 }
 
 func newTextDecoder(buf []byte, e encoding) textDecoder {
-	invariant.Check(e.n <= len(buf), "classified length within the window")
+	if !invariant.Check(e.n <= len(buf), "classified length within the window") {
+		return textDecoder{}
+	}
 	d := textDecoder{buf: buf[:e.n], kind: e.kind} // decoder
 	switch e.kind {
 	case encUTF8BOM:
@@ -327,7 +341,9 @@ func newTextDecoder(buf []byte, e encoding) textDecoder {
 
 // next returns the next character and false at the end.
 func (d *textDecoder) next() (uint32, bool) {
-	invariant.Check(d.i >= 0 && d.i <= len(d.buf), "decoder cursor within the window")
+	if !invariant.Check(d.i >= 0 && d.i <= len(d.buf), "decoder cursor within the window") {
+		return 0, false
+	}
 	switch d.kind {
 	case encASCII, encUTF7, encLatin1, encExtended:
 		if d.i >= len(d.buf) {
@@ -363,7 +379,9 @@ func (d *textDecoder) next() (uint32, bool) {
 // classify, so a truncated final sequence is the only irregularity, and
 // it yields no character.
 func (d *textDecoder) nextUTF8() (uint32, bool) {
-	invariant.Check(d.i >= 0 && d.i <= len(d.buf), "decoder cursor within the window")
+	if !invariant.Check(d.i >= 0 && d.i <= len(d.buf), "decoder cursor within the window") {
+		return 0, false
+	}
 	if d.i >= len(d.buf) {
 		return 0, false
 	}
@@ -388,7 +406,9 @@ func (d *textDecoder) nextUTF8() (uint32, bool) {
 }
 
 func (d *textDecoder) nextUTF16() (uint32, bool) {
-	invariant.Check(d.i >= 0 && d.i <= len(d.buf), "decoder cursor within the window")
+	if !invariant.Check(d.i >= 0 && d.i <= len(d.buf), "decoder cursor within the window") {
+		return 0, false
+	}
 	if d.i >= len(d.buf)-1 {
 		return 0, false
 	}

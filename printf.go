@@ -25,8 +25,9 @@ type convSpec struct {
 
 // parseConv parses the conversion starting at desc[i] == '%'.
 func parseConv(desc string, i int) convSpec {
-	invariant.Check(i >= 0, "index non-negative")
-	invariant.Check(i < len(desc) && desc[i] == '%', "conversion starts at a percent")
+	if !invariant.Check(i >= 0 && i < len(desc) && desc[i] == '%', "conversion starts at a percent") {
+		return convSpec{prec: -1, end: len(desc)} // no verb, and nothing after it
+	}
 	c := convSpec{prec: -1} // spec
 	j := i + 1              // cursor
 	for ; j < len(desc) && isFlagChar(desc[j]); j++ {
@@ -78,8 +79,11 @@ func isLengthChar(c byte) bool {
 // given promoted width: v holds the sign-extended value; signed says the C
 // argument type is signed, which decides how %d and %u reinterpret it.
 func (s *scan) printfNum(desc string, v uint64, signed bool, bits int) { // value
-	invariant.Check(s.outLen <= maxOutput, "output length within cap")
-	invariant.Check(bits == 32 || bits == 64, "promoted width")
+	if !invariant.Check(s.outLen <= maxOutput, "output length within cap") ||
+		!invariant.Check(bits == 32 || bits == 64, "promoted width") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	i := indexFrom(desc, 0, '%') // percentIndex
 	if i >= len(desc) {
 		s.writeString(desc)
@@ -101,8 +105,10 @@ func (s *scan) printfNum(desc string, v uint64, signed bool, bits int) { // valu
 
 // formatInt renders an integer image of `bits` width for the conversion.
 func formatInt(c convSpec, v uint64, bits int, _ bool) string { // spec
-	invariant.Check(c.verb != 0, "conversion has a verb")
-	invariant.Check(bits == 32 || bits == 64, "promoted width")
+	if !invariant.Check(c.verb != 0, "conversion has a verb") ||
+		!invariant.Check(bits == 32 || bits == 64, "promoted width") {
+		return ""
+	}
 	var digits string
 	neg := false
 	switch c.verb {
@@ -133,7 +139,9 @@ func formatInt(c convSpec, v uint64, bits int, _ bool) string { // spec
 // finishNumber applies precision, sign, alternate prefix and width to the
 // digit string as C's printf does.
 func finishNumber(c convSpec, digits string, neg bool, v uint64) string { // value
-	invariant.Check(c.verb != 's', "number conversion")
+	if !invariant.Check(c.verb != 's', "number conversion") {
+		return ""
+	}
 	if c.hasPrec {
 		if c.prec == 0 && v == 0 {
 			digits = ""
@@ -181,8 +189,10 @@ func numberPrefix(c convSpec, digits string, neg bool, v uint64) (string, string
 
 // padField pads to the width with spaces, on the right when '-' is set.
 func padField(c convSpec, s string, _ bool) string { // text
-	invariant.Check(c.width <= 1024, "width bounded by the compile-time format check")
-	invariant.Check(c.width >= 0, "width non-negative")
+	if !invariant.Check(c.width <= 1024, "width bounded by the compile-time format check") ||
+		!invariant.Check(c.width >= 0, "width non-negative") {
+		return s // unpadded
+	}
 	for n := len(s); n < c.width; n++ {
 		if c.minus {
 			s += " "
@@ -194,7 +204,9 @@ func padField(c convSpec, s string, _ bool) string { // text
 }
 
 func upper(s string) string {
-	invariant.Check(len(s) <= 1<<20, "formatted number bounded")
+	if !invariant.Check(len(s) <= 1<<20, "formatted number bounded") {
+		return ""
+	}
 	b := []byte(s)
 	for i := range b {
 		b[i] = cToUpper(b[i])
@@ -205,7 +217,10 @@ func upper(s string) string {
 // printfStr prints desc with its %s conversion applied to str (precision
 // truncates, width pads).
 func (s *scan) printfStr(desc string, str []byte) {
-	invariant.Check(s.outLen <= maxOutput, "output length within cap")
+	if !invariant.Check(s.outLen <= maxOutput, "output length within cap") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	i := indexFrom(desc, 0, '%') // percentIndex
 	if i >= len(desc) {
 		s.writeString(desc)
@@ -214,6 +229,7 @@ func (s *scan) printfStr(desc string, str []byte) {
 	c := parseConv(desc, i) // spec
 	if !invariant.Check(c.verb == 's', "string value printed with %s") {
 		s.truncate(TruncInvariant)
+		return
 	}
 	if c.hasPrec && c.prec < len(str) {
 		str = str[:c.prec]
@@ -264,7 +280,11 @@ func formatCFloat(f float64, verb byte, prec int) string { // value
 
 // printfFloat prints desc with its floating conversion applied.
 func (s *scan) printfFloat(desc string, f float64) { // value
-	invariant.Check(s.outLen <= maxOutput, "output length within cap")
+	if !invariant.Check(s.outLen <= maxOutput, "output length within cap") {
+		s.truncate(TruncInvariant)
+		return
+	}
+
 	i := indexFrom(desc, 0, '%') // percentIndex
 	if i >= len(desc) {
 		s.writeString(desc)

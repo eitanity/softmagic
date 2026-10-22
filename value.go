@@ -17,8 +17,10 @@ import (
 
 // getValue reads the comparison value for the record's type.
 func (p *lineParser) getValue() error {
-	invariant.Check(p.i <= len(p.line), "cursor within the line")
-	invariant.Check(p.rec.reln != 'x', "value present")
+	if !invariant.Check(p.i <= len(p.line), "cursor within the line") ||
+		!invariant.Check(p.rec.reln != 'x', "value present") {
+		return p.errorf("value read out of sequence")
+	}
 	r := p.rec // rec
 	switch r.typ {
 	case tBeString16, tLeString16, tString, tPString, tRegex, tSearch,
@@ -44,8 +46,10 @@ func (p *lineParser) getValue() error {
 // getInteger parses a C integer literal, sign-extends it for the type, and
 // refuses values that overflow the type's width as the reference does.
 func (p *lineParser) getInteger() error {
-	invariant.Check(p.i <= len(p.line), "cursor within the line")
-	invariant.Check(!isString(p.rec.typ), "integer value on a numeric type")
+	if !invariant.Check(p.i <= len(p.line), "cursor within the line") ||
+		!invariant.Check(!isString(p.rec.typ), "integer value on a numeric type") {
+		return p.errorf("integer value read out of sequence")
+	}
 	r := p.rec // rec
 	ull, end, ok := strtoull(p.line, p.i, 0)
 	if !ok {
@@ -71,7 +75,9 @@ func (p *lineParser) getInteger() error {
 // integerOverflows is the width check in getvalue: the bits above the
 // type's width must be all zero or all one.
 func integerOverflows(ull uint64, size int) bool {
-	invariant.Check(size == 1 || size == 2 || size == 4 || size == 8 || size == 16, "type width")
+	if !invariant.Check(size == 1 || size == 2 || size == 4 || size == 8 || size == 16, "type width") {
+		return true
+	}
 	var mask uint64
 	switch size {
 	case 1:
@@ -90,8 +96,10 @@ func integerOverflows(ull uint64, size int) bool {
 // getFloat parses a float or double literal with strconv, which accepts the
 // same decimal and hexadecimal forms as strtod for the values Magdir uses.
 func (p *lineParser) getFloat(size int) error {
-	invariant.Check(p.i <= len(p.line), "cursor within the line")
-	invariant.Check(size == 4 || size == 8, "float width")
+	if !invariant.Check(p.i <= len(p.line), "cursor within the line") ||
+		!invariant.Check(size == 4 || size == 8, "float width") {
+		return p.errorf("float value read out of sequence")
+	}
 	r := p.rec // rec
 	end := floatEnd(p.line, p.i)
 	f, err := strconv.ParseFloat(string(p.line[p.i:end]), size*8) // floatVal
@@ -110,8 +118,10 @@ func (p *lineParser) getFloat(size int) error {
 // floatEnd finds the end of a strtod-style literal: sign, digits, point,
 // exponent.
 func floatEnd(s []byte, i int) int { // pos
-	invariant.Check(i >= 0, "cursor non-negative")
-	invariant.Check(i <= len(s), "cursor within the line")
+	if !invariant.Check(i >= 0, "cursor non-negative") ||
+		!invariant.Check(i <= len(s), "cursor within the line") {
+		return i
+	}
 	if c := at(s, i); c == '+' || c == '-' {
 		i++
 	}
@@ -126,8 +136,10 @@ func floatEnd(s []byte, i int) int { // pos
 // exponentEnd returns the end of an exponent starting at s[i], or i when
 // no digits follow the marker.
 func exponentEnd(s []byte, i int) int { // pos
-	invariant.Check(i >= 0, "cursor non-negative")
-	invariant.Check(i < len(s), "exponent marker present")
+	if !invariant.Check(i >= 0, "cursor non-negative") ||
+		!invariant.Check(i < len(s), "exponent marker present") {
+		return i
+	}
 	j := i + 1 // expPos
 	if c := at(s, j); c == '+' || c == '-' {
 		j++
@@ -143,7 +155,9 @@ func exponentEnd(s []byte, i int) int { // pos
 // getGUID parses XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX into the value image
 // in the reference's struct guid layout on a little-endian host.
 func (p *lineParser) getGUID() error {
-	invariant.Check(p.rec.typ == tGUID || p.rec.typ == tLeGUID || p.rec.typ == tBeGUID, "GUID line")
+	if !invariant.Check(p.rec.typ == tGUID || p.rec.typ == tLeGUID || p.rec.typ == tBeGUID, "GUID line") {
+		return p.errorf("GUID value on a non-GUID type")
+	}
 	const guidLen = 36
 	s := p.line[p.i:] // guidText
 	if len(s) < guidLen {
@@ -173,7 +187,9 @@ func (p *lineParser) getGUID() error {
 
 // hexValue parses an exact-width hex field.
 func hexValue(s []byte) (uint64, bool) {
-	invariant.Check(len(s) <= 16, "hex field fits 64 bits")
+	if !invariant.Check(len(s) <= 16, "hex field fits 64 bits") {
+		return 0, false
+	}
 	var v uint64 // hexVal
 	for i := 0; i < len(s); i++ {
 		d := hexToInt(s[i])
@@ -188,7 +204,9 @@ func hexValue(s []byte) (uint64, bool) {
 // signExtend is file_signextend: a signed type's value is sign-extended
 // from its width to 64 bits unless the test is unsigned.
 func signExtend(r *recordHead, v uint64) uint64 { // value
-	invariant.Check(r.typ != tInvalid, "line has a type")
+	if !invariant.Check(r.typ != tInvalid, "line has a type") {
+		return v
+	}
 	if r.flag&flagUnsigned != 0 {
 		return v
 	}

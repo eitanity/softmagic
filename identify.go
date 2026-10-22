@@ -94,7 +94,9 @@ func (db *Database) identify(ctx context.Context, data []byte, o Options, comple
 	if len(data) > maxBytes {
 		data = data[:maxBytes]
 	}
-	invariant.Check(maxBytes >= 0 && len(data) <= maxBytes, "window within MaxBytes")
+	if !invariant.Check(maxBytes >= 0 && len(data) <= maxBytes, "window within MaxBytes") {
+		return invariantResult(o)
+	}
 	s := db.pool.get(db, ctx, data, o) // scanState
 	r := s.identify()                  // result
 	r.Examined.Complete = complete
@@ -120,8 +122,10 @@ func (db *Database) identifyIndependent(data []byte) Result {
 // MIME and extension passes where the description pass did not settle
 // them.
 func (s *scan) identify() Result {
-	invariant.Check(s.nframes == 0, "identify starts with no frames")
-	invariant.Check(s.outLen == 0, "identify starts with no output")
+	if !invariant.Check(s.nframes == 0, "identify starts with no frames") ||
+		!invariant.Check(s.outLen == 0, "identify starts with no output") {
+		return invariantResult(Options{Continue: s.wantCont})
+	}
 	r := Result{Examined: Examined{DatabaseHash: s.db.hash, ImplementsFile: ImplementsFile}, Phase: PhaseDefault} // result
 	switch len(s.buf) {
 	case 0:
@@ -172,8 +176,12 @@ func (s *scan) identify() Result {
 
 // finishResult fills the fields every answer carries.
 func (s *scan) finishResult(r Result, desc, mime, charset string) Result { // result
-	invariant.Check(desc != "", "a blank is never an answer")
-	invariant.Check(mime != "" && charset != "", "MIME and charset always set")
+	if !invariant.Check(desc != "", "a blank is never an answer") {
+		return invariantResult(Options{Continue: s.wantCont})
+	}
+	if !invariant.Check(mime != "" && charset != "", "MIME and charset always set") {
+		return invariantResult(Options{Continue: s.wantCont})
+	}
 	r.Description, r.MIME, r.Charset = desc, mime, charset
 	if s.abort != "" {
 		r = s.independentResult(r) // a hard limit stopped the first-match run
@@ -195,7 +203,9 @@ func (s *scan) finishResult(r Result, desc, mime, charset string) Result { // re
 // softmagic is file_softmagic: run the set-0 entries of the given class
 // over win and report whether anything was printed or annotated.
 func (s *scan) softmagic(win []byte, mode uint16, text bool) bool {
-	invariant.Check(mode == flagBinTest || mode == flagTextTest, "mode is one class")
+	if !invariant.Check(mode == flagBinTest || mode == flagTextTest, "mode is one class") {
+		return s.fail("mode is one class")
+	}
 	if s.excluded(CheckSoft) {
 		return false // -e soft: neither the binary nor the text rules run
 	}
@@ -216,8 +226,10 @@ func (s *scan) softmagic(win []byte, mode uint16, text bool) bool {
 		m := &s.db.maps[i]
 		root := frame{first: m.first, count: m.count, kind: kindRoot, base: 0, n: len(win),
 			mode: mode, text: text, mapIdx: i}
-		ok := s.pushFrame(&root)
-		invariant.Check(ok, "root frame fits")
+		if !invariant.Check(s.pushFrame(&root), "root frame fits") {
+			s.truncate(TruncInvariant)
+			break
+		}
 		found := s.run()
 		rv = rv || found
 		if s.abort != "" || (found && !s.cont) {
@@ -231,14 +243,22 @@ func (s *scan) softmagic(win []byte, mode uint16, text bool) bool {
 // beginWindow makes win the buffer frames index into: the input itself for
 // the binary phase, or the UTF-8 re-encoding for the text phase.
 func (s *scan) beginWindow(win []byte) {
-	invariant.Check(s.savedBuf == nil, "windows do not nest")
+	if !invariant.Check(s.savedBuf == nil, "windows do not nest") {
+		s.truncate(TruncInvariant)
+		s.buf = win // the outer saved input is kept for endWindow
+		return
+	}
 	s.savedBuf = s.buf
 	s.buf = win
 }
 
 // endWindow restores the input buffer; bytes consulted are clamped to it.
 func (s *scan) endWindow() {
-	invariant.Check(s.savedBuf != nil, "window was begun")
+	if !invariant.Check(s.savedBuf != nil, "window was begun") {
+		s.truncate(TruncInvariant)
+		s.winID = 0
+		return
+	}
 	s.buf = s.savedBuf
 	s.savedBuf = nil
 	s.winID = 0
@@ -250,7 +270,10 @@ func (s *scan) endWindow() {
 // mimeResult reproduces `file -i`: the first MIME annotation on the
 // winning path; else the text phase in MIME mode; else the default.
 func (s *scan) mimeResult(found, textFound bool, e encoding) string { // encoding
-	invariant.Check(int(s.mimeRec) < len(s.db.meta), "MIME record within the database")
+	if !invariant.Check(int(s.mimeRec) < len(s.db.meta), "MIME record within the database") {
+		s.truncate(TruncInvariant)
+		return "application/octet-stream"
+	}
 	if s.mimeRec >= 0 {
 		return varexpand(s.db.mimeOf(s.mimeRec), s.execBit)
 	}
@@ -293,7 +316,10 @@ func (s *scan) textPhaseWouldRun(e encoding) bool { // encoding
 // extResult reproduces `file --extension`: the first extension annotation
 // on the winning path, else the text phase's, else none.
 func (s *scan) extResult(found, textFound bool, e encoding) []string {
-	invariant.Check(int(s.extRec) < len(s.db.meta), "extension record within the database")
+	if !invariant.Check(int(s.extRec) < len(s.db.meta), "extension record within the database") {
+		s.truncate(TruncInvariant)
+		return nil
+	}
 	if s.extRec < 0 && (found || textFound) {
 		s.mode = modeExt
 		s.resetOutput()
@@ -307,7 +333,10 @@ func (s *scan) extResult(found, textFound bool, e encoding) []string {
 // modes, so the rules do, binary phase then text phase, until an
 // annotation is met. It returns the annotated record, -1 for none.
 func (s *scan) annotPipeline(e encoding, mode matchMode) int32 { // encoding
-	invariant.Check(mode == modeExt || mode == modeApple, "annotation mode")
+	if !invariant.Check(mode == modeExt || mode == modeApple, "annotation mode") {
+		s.truncate(TruncInvariant)
+		return -1
+	}
 	s.mode = mode
 	s.resetOutput()
 	s.softmagic(s.buf, flagBinTest, e.isText())
@@ -354,7 +383,10 @@ func (s *scan) appleResult(found, textFound bool, e encoding) string {
 
 // resetOutput clears the printed text before an annotation pass.
 func (s *scan) resetOutput() {
-	invariant.Check(s.mode != modeDesc, "output reset only for annotation passes")
+	if !invariant.Check(s.mode != modeDesc, "output reset only for annotation passes") {
+		s.truncate(TruncInvariant)
+		return // the description stays
+	}
 	s.outLen = 0
 	s.printedSomething, s.needSeparator = false, false
 	s.nframes = 0
@@ -363,7 +395,10 @@ func (s *scan) resetOutput() {
 // winnerStrength is the strength of the entry whose text was printed
 // first, 0 when none.
 func (s *scan) winnerStrength() int {
-	invariant.Check(s.nrules <= maxRules, "rule count within cap")
+	if !invariant.Check(s.nrules <= maxRules, "rule count within cap") {
+		s.truncate(TruncInvariant)
+		return 0
+	}
 	if s.nrules == 0 {
 		return 0
 	}
@@ -382,10 +417,14 @@ func (s *scan) winnerStrength() int {
 
 // ruleIDs is Result.Rules.
 func (s *scan) ruleIDs() []RuleID {
-	invariant.Check(s.nrules <= maxRules, "rule count within cap")
+	if !invariant.Check(s.nrules <= maxRules, "rule count within cap") {
+		s.truncate(TruncInvariant)
+		return nil
+	}
 	if s.nrules == 0 {
 		return nil
 	}
+
 	out := make([]RuleID, s.nrules)
 	for i := 0; i < s.nrules; i++ {
 		out[i] = s.db.ruleID(s.rules[i])

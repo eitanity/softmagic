@@ -30,8 +30,11 @@ type runResult struct {
 // is what file -b -k prints in that mode. charset ends the encoding run,
 // as file_buffer appends it after trimming.
 func (s *scan) identifyContinue(charset string) Continued {
-	invariant.Check(s.wantCont, "continue requested")
-	invariant.Check(s.savedBuf == nil && s.nframes == 0, "continue runs start on the input window")
+	if !invariant.Check(s.wantCont, "continue requested") ||
+		!invariant.Check(s.savedBuf == nil && s.nframes == 0, "continue runs start on the input window") {
+		s.truncate(TruncInvariant)
+		return invariantResult(Options{Continue: true}).Continued
+	}
 	e := s.runEncoding()
 	desc := s.bufferRun(modeDesc, e, true)
 	mime := s.bufferRun(modeMime, e, true)
@@ -56,8 +59,11 @@ func (s *scan) identifyContinue(charset string) Continued {
 // goes to its end; once a hard limit stops one, each mode stops where the
 // reference's own run in that mode would, so each is run.
 func (s *scan) independentResult(r Result) Result { // result
-	invariant.Check(s.savedBuf == nil, "runs start on the input window")
-	invariant.Check(r.Charset != "", "charset already established")
+	if !invariant.Check(s.savedBuf == nil, "runs start on the input window") ||
+		!invariant.Check(r.Charset != "", "charset already established") {
+		s.truncate(TruncInvariant)
+		return invariantResult(Options{})
+	}
 	e := s.runEncoding()
 	desc := s.bufferRun(modeDesc, e, false)
 	mime := s.bufferRun(modeMime, e, false)
@@ -102,8 +108,11 @@ func (s *scan) runEncoding() encoding {
 
 // bufferRun is one file_buffer in one mode, with or without MAGIC_CONTINUE.
 func (s *scan) bufferRun(mode matchMode, e encoding, cont bool) runResult { // encoding
-	invariant.Check(mode <= modeEnc, "a known mode")
-	invariant.Check(s.nframes == 0, "runs start with no frames")
+	if !invariant.Check(mode <= modeEnc, "a known mode") ||
+		!invariant.Check(s.nframes == 0, "runs start with no frames") {
+		s.truncate(TruncInvariant)
+		return runResult{}
+	}
 	s.mode, s.cont, s.independent = mode, cont, true
 	s.outLen, s.nseps = 0, 0
 	s.printedSomething, s.needSeparator, s.firstline = false, false, true
@@ -134,8 +143,11 @@ func (s *scan) bufferRun(mode matchMode, e encoding, cont bool) runResult { // e
 // m, which each check sets and a check switched off by Options.Exclude
 // leaves alone). An error ends the run at once.
 func (s *scan) bufferPhases(e encoding) bool { // encoding
-	invariant.Check(len(s.buf) >= 2, "checks run on two or more bytes")
-	invariant.Check(s.independent, "a run of one mode")
+	if !invariant.Check(len(s.buf) >= 2, "checks run on two or more bytes") ||
+		!invariant.Check(s.independent, "a run of one mode") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	m, done := s.bufferBuiltins(e) // matched
 	if done {
 		return true
@@ -170,7 +182,10 @@ func (s *scan) bufferPhases(e encoding) bool { // encoding
 // checkdone is file_buffer's checkdone: without MAGIC_CONTINUE an answer
 // ends the run; with it, a separator and on.
 func (s *scan) checkdone() bool {
-	invariant.Check(s.independent, "a run of one mode")
+	if !invariant.Check(s.independent, "a run of one mode") {
+		s.truncate(TruncInvariant)
+		return true // end the run
+	}
 	if !s.cont {
 		return true
 	}
@@ -183,9 +198,7 @@ func (s *scan) checkdone() bool {
 // run. They answer nothing in the extension and Apple modes, and print
 // nothing (though they still answer) for the encoding.
 func (s *scan) bufferBuiltins(e encoding) (m, done bool) { // encoding
-	invariant.Check(len(s.buf) >= 2, "detectors run on two or more bytes")
-	invariant.Check(s.independent, "a run of one mode")
-	if s.mode == modeExt || s.mode == modeApple {
+	if !s.detectorsCanRun() || s.mode == modeExt || s.mode == modeApple {
 		return false, false
 	}
 	if !s.excluded(CheckTar) {
@@ -214,11 +227,24 @@ func (s *scan) bufferBuiltins(e encoding) (m, done bool) { // encoding
 	return m, done
 }
 
+// detectorsCanRun checks the state bufferBuiltins relies on.
+func (s *scan) detectorsCanRun() bool {
+	if !invariant.Check(len(s.buf) >= 2, "detectors run on two or more bytes") ||
+		!invariant.Check(s.independent, "a run of one mode") {
+		s.truncate(TruncInvariant)
+		return false
+	}
+	return true
+}
+
 // bufferBuiltin prints one detector's answer in the run's mode and reports
 // whether it answered and whether that ended the run.
 func (s *scan) bufferBuiltin(r builtinResult) (bool, bool) { // builtin
-	invariant.Check(s.independent, "a run of one mode")
-	invariant.Check(!r.hit || (r.desc != "" && r.mime != ""), "an answer has a description and a MIME type")
+	if !invariant.Check(s.independent, "a run of one mode") ||
+		!invariant.Check(!r.hit || (r.desc != "" && r.mime != ""), "an answer has a description and a MIME type") {
+		s.truncate(TruncInvariant)
+		return false, false
+	}
 	if !r.hit {
 		return false, false
 	}
@@ -238,8 +264,11 @@ func (s *scan) bufferBuiltin(r builtinResult) (bool, bool) { // builtin
 // adds its own answer after them; without it, a MIME answer from the text
 // rules is the answer.
 func (s *scan) bufferText(looksText bool, e encoding) bool { // textEncoding
-	invariant.Check(s.savedBuf == nil, "text phase starts on the input window")
-	invariant.Check(e.n <= len(s.buf), "classified length within the input")
+	if !invariant.Check(s.savedBuf == nil, "text phase starts on the input window") ||
+		!invariant.Check(e.n <= len(s.buf), "classified length within the input") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	if s.excluded(CheckText) {
 		return false
 	}
@@ -275,7 +304,10 @@ func (s *scan) bufferText(looksText bool, e encoding) bool { // textEncoding
 // textWindow is file_ascmagic's preparation: the NUL-trimmed window and its
 // classification, and whether it is text at all.
 func (s *scan) textWindow(e encoding) ([]byte, encoding, bool) { // encoding
-	invariant.Check(e.n <= len(s.buf), "classified length within the input")
+	if !invariant.Check(e.n <= len(s.buf), "classified length within the input") {
+		s.truncate(TruncInvariant)
+		return nil, e, false
+	}
 	n := trimNuls(s.buf) // textLength
 	if n&1 != 0 && len(s.buf)&1 == 0 {
 		n++ // keep the last UTF-16 unit whole
@@ -293,8 +325,11 @@ func (s *scan) textWindow(e encoding) ([]byte, encoding, bool) { // encoding
 
 // bufferDefault is file_default, then file_buffer's default description.
 func (s *scan) bufferDefault() {
-	invariant.Check(s.independent, "a run of one mode")
-	invariant.Check(s.outLen <= maxOutput, "output length within cap")
+	if !invariant.Check(s.independent, "a run of one mode") ||
+		!invariant.Check(s.outLen <= maxOutput, "output length within cap") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	switch s.mode {
 	case modeMime:
 		if len(s.buf) == 0 {
@@ -326,8 +361,11 @@ func defaultDescription(n int) string {
 
 // answers splits the run's output at the separators it printed.
 func (s *scan) answers() []string {
-	invariant.Check(s.nseps >= 0 && s.nseps <= maxSeps, "separator count within cap")
-	invariant.Check(s.outLen <= maxOutput, "output length within cap")
+	if !invariant.Check(s.nseps >= 0 && s.nseps <= maxSeps, "separator count within cap") ||
+		!invariant.Check(s.outLen >= 0 && s.outLen <= maxOutput, "output length within cap") {
+		s.truncate(TruncInvariant)
+		return nil
+	}
 	out := make([]string, 0, s.nseps+1)
 	start := 0
 	for i := range s.nseps {

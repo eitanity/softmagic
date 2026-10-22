@@ -61,9 +61,9 @@ type frame struct {
 
 // line returns the record at relative index i of the frame.
 func (s *scan) line(f *frame, i int32) *record {
-	invariant.Check(f.count >= 0 && i >= 0, "line index non-negative")
 	k := int(f.first) + int(i)
-	if !invariant.Check(k >= 0 && k < len(s.db.recs), "frame line within database") {
+	if !invariant.Check(f.count >= 0 && i >= 0, "line index non-negative") ||
+		!invariant.Check(k >= 0 && k < len(s.db.recs), "frame line within database") {
 		s.truncate(TruncInvariant)
 		k = 0
 	}
@@ -76,8 +76,11 @@ func (s *scan) window(f *frame) []byte { return s.buf[f.base : f.base+f.n] }
 // pushFrame starts a child match. It reports false when the depth cap is
 // reached, which is recorded as Truncated "recursion".
 func (s *scan) pushFrame(fr *frame) bool { // childFrame
-	invariant.Check(fr.n >= 0 && fr.base >= 0 && fr.base+fr.n <= len(s.buf), "child window within the buffer")
-	invariant.Check(fr.count >= 0 && int(fr.first)+int(fr.count) <= len(s.db.recs), "child lines within the database")
+	if !invariant.Check(fr.n >= 0 && fr.base >= 0 && fr.base+fr.n <= len(s.buf), "child window within the buffer") ||
+		!invariant.Check(fr.count >= 0 && int(fr.first)+int(fr.count) <= len(s.db.recs), "child lines within the database") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	if s.nframes >= s.maxDepth {
 		s.truncate(TruncRecursion)
 		return false
@@ -91,8 +94,9 @@ func (s *scan) pushFrame(fr *frame) bool { // childFrame
 // run evaluates frames until the root completes and returns the root's
 // returnval: whether anything was printed or annotated.
 func (s *scan) run() bool {
-	invariant.Check(s.maxDepth > 0 && s.maxDepth <= maxFrames, "depth cap in range")
-	invariant.Check(s.nframes == 1, "run starts with the root frame")
+	if !s.runReady() {
+		return false
+	}
 	rootResult := false
 	for steps := 0; steps < maxSteps && s.nframes > 0 && s.truncated != TruncTime && s.abort == ""; steps++ {
 		f := &s.frames[s.nframes-1] // frame
@@ -118,11 +122,26 @@ func (s *scan) run() bool {
 	return rootResult
 }
 
+// runReady reports whether the scan is set up for run: a depth cap in range
+// and the root frame alone on the stack.
+func (s *scan) runReady() bool {
+	if !invariant.Check(s.maxDepth > 0 && s.maxDepth <= maxFrames, "depth cap in range") ||
+		!invariant.Check(s.nframes == 1, "run starts with the root frame") {
+		s.truncate(TruncInvariant)
+		return false
+	}
+	return true
+}
+
 // popFrame finishes the top frame and, for a child, completes the parent's
 // mget with the child's result. It returns the frame's returnval.
 func (s *scan) popFrame() bool {
-	invariant.Check(s.nframes > 0, "pop with a frame")
-	invariant.Check(s.frames[s.nframes-1].idx >= s.frames[s.nframes-1].count, "popped frame is complete")
+	if !invariant.Check(s.nframes > 0, "pop with a frame") ||
+		!invariant.Check(s.frames[s.nframes-1].idx >= s.frames[s.nframes-1].count, "popped frame is complete") {
+		s.truncate(TruncInvariant)
+		s.nframes = 0 // the stack is not what the run expects: end it
+		return false
+	}
 	f := &s.frames[s.nframes-1] // frame
 	rv := f.returnval           // returnVal
 	s.nframes--
@@ -130,7 +149,10 @@ func (s *scan) popFrame() bool {
 		return rv
 	}
 	parent := &s.frames[s.nframes-1]
-	invariant.Check(parent.idx < parent.count, "parent is suspended on a line")
+	if !invariant.Check(parent.idx < parent.count, "parent is suspended on a line") {
+		s.truncate(TruncInvariant)
+		return rv // the parent has no line to complete; the run pops it next
+	}
 	if f.kind == kindIndirect && !rv && f.mapIdx+1 < len(s.db.maps) {
 		s.pushNextMap(f) // mget's indirect loop: the next map, until one answers
 		return rv
@@ -151,7 +173,10 @@ func (s *scan) popFrame() bool {
 
 // pushNextMap starts an indirect child over the next map's binary set.
 func (s *scan) pushNextMap(done *frame) {
-	invariant.Check(done.mapIdx+1 < len(s.db.maps), "a next map exists")
+	if !invariant.Check(done.mapIdx+1 < len(s.db.maps), "a next map exists") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	next := *done
 	next.mapIdx++
 	m := &s.db.maps[next.mapIdx]
@@ -159,23 +184,40 @@ func (s *scan) pushNextMap(done *frame) {
 	next.idx, next.contLevel, next.phase = 0, 0, phaseTop
 	next.returnval, next.foundMatch, next.onTail = false, false, false // a new match() call starts on the window
 	ok := s.pushFrame(&next)
-	invariant.Check(ok, "the popped frame's slot is free")
+	if !invariant.Check(ok, "the popped frame's slot is free") {
+		s.truncate(TruncInvariant)
+	}
 }
 
 // flush skips the rest of the current entry: the reference's `goto flush`.
 func (s *scan) flush(f *frame) { // frame
-	invariant.Check(f.idx < f.count, "flush from a line within the frame")
+	if !invariant.Check(f.idx < f.count, "flush from a line within the frame") {
+		s.abandon(f)
+		return
+	}
 	end := s.db.entryEnd[f.first+f.idx] - f.first
-	invariant.Check(end > f.idx && end <= f.count, "entry end within the frame")
+	if !invariant.Check(end > f.idx && end <= f.count, "entry end within the frame") {
+		s.abandon(f)
+		return
+	}
 	f.idx = end
 	f.contLevel = 0
 	f.phase = phaseTop
 }
 
+// abandon records a violated invariant and ends the frame, so the run pops
+// it rather than evaluating a line it cannot trust.
+func (s *scan) abandon(f *frame) {
+	s.truncate(TruncInvariant)
+	f.idx = f.count
+}
+
 // skipTop is the reference's first test in match(): entries of the other
 // class, and string tests marked for the other text/binary mode.
 func skipTop(m *record, mode uint16, text bool) bool { // magicLine
-	invariant.Check(mode == flagBinTest || mode == flagTextTest, "mode is one class")
+	if !invariant.Check(mode == flagBinTest || mode == flagTextTest, "mode is one class") {
+		return true
+	}
 	if m.typ == tName {
 		return false
 	}
@@ -191,8 +233,11 @@ func skipTop(m *record, mode uint16, text bool) bool { // magicLine
 // stepTop evaluates the top-level line at f.idx up to its mget; a child
 // push suspends the frame and finishTop completes it later.
 func (s *scan) stepTop(f *frame) { // frame
-	invariant.Check(f.phase == phaseTop, "top-level step in the top phase")
-	invariant.Check(s.line(f, f.idx).contLevel == 0, "top-level line has level 0")
+	if !invariant.Check(f.phase == phaseTop, "top-level step in the top phase") ||
+		!invariant.Check(s.line(f, f.idx).contLevel == 0, "top-level line has level 0") {
+		s.abandon(f)
+		return
+	}
 	m := s.line(f, f.idx) // magicLine
 	pf := &s.db.pre[f.first+f.idx]
 	if pf.skip&skipBit(f.mode, f.text) != 0 || s.timeUp() {
@@ -217,9 +262,8 @@ func (s *scan) stepTop(f *frame) { // frame
 // finishTop is the rest of the top-level line's evaluation after mget
 // returned r (0 no match, 1 match, -1 the reference's fatal error).
 func (s *scan) finishTop(f *frame, r int) { // mgetResult
-	invariant.Check(r >= -1 && r <= 1, "mget result in range")
 	m := s.line(f, f.idx) // magicLine
-	if r < 0 {
+	if s.mgetFailed(r) {
 		s.flush(f)
 		return
 	}
@@ -260,9 +304,22 @@ func (s *scan) finishTop(f *frame, r int) { // mgetResult
 	f.idx++
 }
 
+// mgetFailed reports whether mget's result is the reference's fatal error;
+// a result out of range is recorded and treated as one.
+func (s *scan) mgetFailed(r int) bool { // mgetResult
+	if !invariant.Check(r >= -1 && r <= 1, "mget result in range") {
+		s.truncate(TruncInvariant)
+		return true
+	}
+	return r < 0
+}
+
 // endFrame makes the frame complete with the given result.
 func (s *scan) endFrame(f *frame, rv bool) { // frame
-	invariant.Check(f.idx <= f.count, "frame index within bounds")
+	if !invariant.Check(f.idx <= f.count, "frame index within bounds") {
+		s.abandon(f)
+		return
+	}
 	f.foundMatch = true
 	s.needSeparator, s.printedSomething = true, true
 	if s.cont {
@@ -275,8 +332,11 @@ func (s *scan) endFrame(f *frame, rv bool) { // frame
 
 // stepCont evaluates the continuation line at f.idx up to its mget.
 func (s *scan) stepCont(f *frame) { // frame
-	invariant.Check(f.phase == phaseCont, "continuation step in the continuation phase")
-	invariant.Check(f.contLevel >= 0 && int(f.contLevel) < maxLevels, "continuation level within bounds")
+	if !invariant.Check(f.phase == phaseCont, "continuation step in the continuation phase") ||
+		!invariant.Check(f.contLevel >= 0 && int(f.contLevel) < maxLevels, "continuation level within bounds") {
+		s.abandon(f)
+		return
+	}
 	m := s.line(f, f.idx) // magicLine
 	if m.contLevel == 0 {
 		s.entryEnd(f)
@@ -312,7 +372,10 @@ func (s *scan) stepCont(f *frame) { // frame
 // entryEnd is reached when the entry's continuation lines are exhausted:
 // a found match ends the frame, otherwise the next entry is tried.
 func (s *scan) entryEnd(f *frame) { // frame
-	invariant.Check(f.idx <= f.count, "frame index within bounds")
+	if !invariant.Check(f.idx <= f.count, "frame index within bounds") {
+		s.abandon(f)
+		return
+	}
 	if s.cont {
 		s.contEntryDone(f) // under MAGIC_CONTINUE the next entry is tried regardless
 	} else if f.foundMatch {
@@ -328,8 +391,11 @@ func (s *scan) entryEnd(f *frame) { // frame
 // MAGIC_CONTINUE: an entry that printed makes later answers need a
 // separator, and after a match the printing state starts again.
 func (s *scan) contEntryDone(f *frame) { // frame
-	invariant.Check(s.cont, "continue run")
-	invariant.Check(f.idx <= f.count, "frame index within bounds")
+	if !invariant.Check(s.cont, "continue run") ||
+		!invariant.Check(f.idx <= f.count, "frame index within bounds") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	if s.printedSomething {
 		s.firstline = false
 	}
@@ -340,9 +406,8 @@ func (s *scan) contEntryDone(f *frame) { // frame
 
 // finishCont is the rest of a continuation line's evaluation after mget.
 func (s *scan) finishCont(f *frame, r int) { // mgetResult
-	invariant.Check(r >= -1 && r <= 1, "mget result in range")
 	m := s.line(f, f.idx) // magicLine
-	if r < 0 {
+	if s.mgetFailed(r) {
 		f.idx++
 		return
 	}
@@ -368,9 +433,9 @@ func (s *scan) finishCont(f *frame, r int) { // mgetResult
 // contMatched handles a matched continuation line: the default/clear
 // bookkeeping, annotation, printing and the next level's offset.
 func (s *scan) contMatched(f *frame, m *record) { // magicLine
-	invariant.Check(m.contLevel != 0, "continuation line")
 	cl := f.contLevel // contLevel
-	if !invariant.Check(cl >= 0 && int(cl) < maxLevels, "continuation level within bounds") {
+	if !invariant.Check(m.contLevel != 0, "continuation line") ||
+		!invariant.Check(cl >= 0 && int(cl) < maxLevels, "continuation level within bounds") {
 		s.truncate(TruncInvariant)
 		return
 	}
@@ -407,8 +472,11 @@ func (s *scan) contMatched(f *frame, m *record) { // magicLine
 // before it when the previous item printed, and under MAGIC_CONTINUE a
 // separator when it is the first text since an answer ended.
 func (s *scan) printCont(f *frame, m *record) { // frame
-	invariant.Check(s.mode == modeDesc, "continuations print in description mode")
-	invariant.Check(m.contLevel != 0, "continuation line")
+	if !invariant.Check(s.mode == modeDesc, "continuations print in description mode") ||
+		!invariant.Check(m.contLevel != 0, "continuation line") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	f.returnval = true
 	if s.cont && !s.printedSomething && !s.firstline {
 		s.writeSep()
@@ -425,7 +493,10 @@ func (s *scan) printCont(f *frame, m *record) { // frame
 // first annotated line on the path ends the match. In description mode the
 // annotations are only recorded.
 func (s *scan) annotate(m *record, f *frame) bool { // magicLine
-	invariant.Check(f.idx >= 0 && f.idx < f.count, "annotating a line within the frame")
+	if !invariant.Check(f.idx >= 0 && f.idx < f.count, "annotating a line within the frame") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	rec := f.first + f.idx
 	if m.hasMime() && s.mimeRec < 0 {
 		s.mimeRec = rec
@@ -456,8 +527,11 @@ func (s *scan) annotate(m *record, f *frame) bool { // magicLine
 // the first answer is printed; a later one only under MAGIC_CONTINUE, after
 // a separator.
 func (s *scan) printAnnotation(rec int32) {
-	invariant.Check(s.independent, "annotations print only in runs of one mode")
-	invariant.Check(rec >= 0 && int(rec) < len(s.db.recs), "annotated record within the database")
+	if !invariant.Check(s.independent, "annotations print only in runs of one mode") ||
+		!invariant.Check(rec >= 0 && int(rec) < len(s.db.recs), "annotated record within the database") {
+		s.truncate(TruncInvariant)
+		return
+	}
 	if !s.firstline {
 		if !s.cont {
 			return

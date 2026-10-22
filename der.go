@@ -36,7 +36,9 @@ func derTagName(tag uint32) string {
 
 // derTag is gettag: the tag number at c[p], advancing p.
 func derTag(c []byte, p *int) uint32 { // content
-	invariant.Check(*p >= 0, "cursor non-negative")
+	if !invariant.Check(*p >= 0, "cursor non-negative") {
+		return derBad
+	}
 	if *p >= len(c) {
 		return derBad
 	}
@@ -62,7 +64,9 @@ func derTag(c []byte, p *int) uint32 { // content
 
 // derLength is getlength: the element length at c[p], advancing p.
 func derLength(c []byte, p *int) uint32 { // content
-	invariant.Check(*p >= 0, "cursor non-negative")
+	if !invariant.Check(*p >= 0, "cursor non-negative") {
+		return derBad
+	}
 	l := len(c) // contentLength
 	if *p >= l {
 		return derBad
@@ -90,7 +94,9 @@ func derLength(c []byte, p *int) uint32 { // content
 // derData is der_data: the element's value as the rule compares it, into
 // buf (128 bytes as the reference's).
 func derData(buf []byte, tag uint32, d []byte) []byte { // elementValue
-	invariant.Check(len(buf) == maxString, "der buffer is MAXstring")
+	if !invariant.Check(len(buf) == maxString, "der buffer is MAXstring") {
+		return buf[:0]
+	}
 	switch tag {
 	case 0x13, 0x0c, 0x16: // printable, utf8, ia5 strings: %.*s
 		n := 0
@@ -114,7 +120,10 @@ func derData(buf []byte, tag uint32, d []byte) []byte { // elementValue
 // derOffs is der_offs: the offset of the element's value, with the parent
 // level's continuation offset moved past the element so siblings follow.
 func (s *scan) derOffs(m *record, f *frame) (int32, bool) { // frame
-	invariant.Check(s.search.valid, "der region set")
+	if !invariant.Check(s.search.valid, "der region set") {
+		s.truncate(TruncInvariant)
+		return 0, false
+	}
 	b := s.buf[s.search.start : s.search.start+s.search.length] // searchRegion
 	if s.search.length == 0 {
 		b = s.buf[s.search.start:]
@@ -139,7 +148,10 @@ func (s *scan) derOffs(m *record, f *frame) (int32, bool) { // frame
 
 // derCmp is der_cmp: match the element against the rule's "tag[len][=data]".
 func (s *scan) derCmp(m *record) bool { // rule
-	invariant.Check(m.typ == tDer, "der line")
+	if !invariant.Check(m.typ == tDer, "der line") {
+		s.truncate(TruncInvariant)
+		return false
+	}
 	if !s.search.valid {
 		return false
 	}

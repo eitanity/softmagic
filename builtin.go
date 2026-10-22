@@ -24,7 +24,10 @@ type builtinResult struct {
 // builtins runs the detectors in the reference's order (tar, JSON, CSV,
 // SIMH; CDF and ELF are not implemented yet) and returns the first hit.
 func (s *scan) builtins(e encoding) builtinResult { // encoding
-	invariant.Check(len(s.buf) >= 2, "detectors run on two or more bytes")
+	if !invariant.Check(len(s.buf) >= 2, "detectors run on two or more bytes") {
+		s.truncate(TruncInvariant)
+		return builtinResult{}
+	}
 	if r := detectTar(s.buf); r.hit && !s.excluded(CheckTar) {
 		return r
 	}
@@ -130,7 +133,9 @@ func detectCSV(buf []byte, e encoding) builtinResult {
 
 // csvParse is csv_parse.
 func csvParse(uc []byte) bool { // input
-	invariant.Check(uc != nil || len(uc) == 0, "input slice")
+	if !invariant.Check(uc != nil || len(uc) == 0, "input slice") {
+		return false
+	}
 	nf, tf, nl := 0, 0, 0 // firstLineFields
 	for i := 0; i < len(uc); i++ {
 		switch uc[i] {
@@ -161,7 +166,9 @@ func csvParse(uc []byte) bool { // input
 // csvEatQuote is eatquote: skip to the end of a quoted field, where a
 // doubled quote is an escape; it returns the index after the field.
 func csvEatQuote(uc []byte, i int) int { // cursor
-	invariant.Check(i >= 0 && i <= len(uc), "cursor within the input")
+	if !invariant.Check(i >= 0 && i <= len(uc), "cursor within the input") {
+		return len(uc)
+	}
 	quote := false
 	for ; i < len(uc); i++ {
 		if uc[i] != '"' {
@@ -206,7 +213,9 @@ func simhLen(buf []byte, i int) (n uint32, ok bool) {
 // simhParse is simh_parse: records framed by equal leading and trailing
 // lengths, tapemarks of zero length, ending at end of medium.
 func simhParse(buf []byte) bool {
-	invariant.Check(simhTapemarks > 0, "tapemark limit positive")
+	if !invariant.Check(simhTapemarks > 0, "tapemark limit positive") {
+		return false
+	}
 	st := simhState{} // tapeState
 	for ; st.i <= len(buf)-4; st.i += 4 {
 		nbytes, ok := simhLen(buf, st.i) // lengthOK
@@ -229,7 +238,9 @@ func simhParse(buf []byte) bool {
 
 // frame handles one length word: a tapemark, or a data record.
 func (st *simhState) frame(buf []byte, nbytes uint32) (stop, ok bool) {
-	invariant.Check(st.i >= 0 && st.i <= len(buf), "cursor within the input")
+	if !invariant.Check(st.i >= 0 && st.i <= len(buf), "cursor within the input") {
+		return false, false
+	}
 	if nbytes != 0 {
 		return st.record(buf, nbytes)
 	}

@@ -13,7 +13,9 @@ import "github.com/eitanity/softmagic/internal/invariant"
 // The reference's warnings (escaped dot, needless escape) are not errors and
 // are not reproduced; its one error, a value longer than MAXstring-1, is.
 func (p *lineParser) getStr() error {
-	invariant.Check(p.i <= len(p.line), "cursor within the line")
+	if !invariant.Check(p.i <= len(p.line), "cursor within the line") {
+		return p.errorf("string value past the end of the line")
+	}
 	s, i, n := p.line, p.i, 0 // valueLength
 	var next int
 	for ; i < len(s) && !cIsSpace(s[i]); i = next {
@@ -52,7 +54,9 @@ func (p *lineParser) getStr() error {
 // decodeEscape decodes the escape whose first byte after the backslash is at
 // s[i]; it returns the byte and the index after the escape.
 func decodeEscape(s []byte, i int) (byte, int) { // line
-	invariant.Check(i > 0 && i < len(s), "escape has a character")
+	if !invariant.Check(i > 0 && i < len(s), "escape has a character") {
+		return 0, len(s)
+	}
 	c := s[i] // escapeChar
 	i++
 	switch c {
@@ -82,8 +86,10 @@ func decodeEscape(s []byte, i int) (byte, int) { // line
 
 // decodeOctal reads up to two more octal digits after the first.
 func decodeOctal(s []byte, i, val int) (byte, int) { // position
-	invariant.Check(i > 0 && i <= len(s), "after the first digit")
-	invariant.Check(val >= 0 && val <= 7, "first octal digit")
+	if !invariant.Check(i > 0 && i <= len(s), "after the first digit") ||
+		!invariant.Check(val >= 0 && val <= 7, "first octal digit") {
+		return 0, len(s)
+	}
 	for k := 0; k < 2; k++ {
 		c := at(s, i)
 		if c < '0' || c > '7' {
@@ -97,8 +103,10 @@ func decodeOctal(s []byte, i, val int) (byte, int) { // position
 
 // decodeHex reads up to two hex digits; with none the result is a literal 'x'.
 func decodeHex(s []byte, i int) (byte, int) { // position
-	invariant.Check(i > 0, "after the escape character")
-	invariant.Check(i <= len(s), "cursor within the value")
+	if !invariant.Check(i > 0, "after the escape character") ||
+		!invariant.Check(i <= len(s), "cursor within the value") {
+		return 0, len(s)
+	}
 	val := int('x')
 	for k := 0; k < 2; k++ {
 		d := hexToInt(at(s, i)) // hexDigit
