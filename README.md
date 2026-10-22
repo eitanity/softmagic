@@ -128,7 +128,7 @@ every tool. `internal/rules` is the test that checks what the linters cannot.
 ```
 make test     # go test -tags softmagic_assert -race ./...
 make lint     # vet, staticcheck, govulncheck, gosec, golangci-lint
-make fuzz     # FuzzCompile for FUZZTIME (default 30s)
+make fuzz     # every fuzz target for FUZZTIME (default 30s), on amd64 and 386, with and without assertions
 make generate # rebuild magic/softmagic.db from magic/Magdir (TestEmbeddedCurrent fails if stale)
 make wctype   # regenerate wctype.go, the iswprint table, from this host's glibc (C.UTF-8)
 go test -tags softmagic_assert -run NONE -fuzz FuzzIdentify -fuzztime 60s .

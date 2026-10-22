@@ -84,3 +84,24 @@ func TestFILETIMEBoundaries(t *testing.T) {
 		}
 	}
 }
+
+// TestID3LineTypes: beid3 and leid3 parse as line types but have no
+// conversion. At the top level the reference refuses the line with no
+// error in the answer, and so does this; the answers are file 5.48's. As
+// a continuation, and under "!", the reference reports an error this does
+// not reproduce; those lines must still not fail an internal check.
+func TestID3LineTypes(t *testing.T) {
+	for _, typ := range []string{"beid3", "leid3"} {
+		db := compileRules(t, "0\t"+typ+"\tx\tid3 %d\n>0\tbyte\tx\tchild\n0\tbyte\tx\tB\n")
+		r := db.Identify([]byte("\x00\x00\x01\x00rest"))
+		if r.Description != "B" || r.Examined.Truncated != "" {
+			t.Errorf("%s: %q (truncated %q), want %q", typ, r.Description, r.Examined.Truncated, "B")
+		}
+		for _, rules := range []string{"0\tbyte\tx\tB\n>0\t" + typ + "\tx\tid3\n", "0\tbyte\tx\tB\n>0\t" + typ + "\t!0\tid3 %d\n"} {
+			r := compileRules(t, rules).Identify([]byte("\x00\x00\x01\x00rest"))
+			if r.Examined.Truncated == TruncInvariant {
+				t.Errorf("%s continuation: an internal check failed (%q)", typ, r.Description)
+			}
+		}
+	}
+}

@@ -57,3 +57,55 @@ func TestLoadEntryTableWrap(t *testing.T) {
 		t.Error("Load accepted an entry table whose sum wraps")
 	}
 }
+
+// TestLoadRefusesUnparsableRecords: Load refuses a record the rule
+// parser could not have produced, rather than leaving the matcher to
+// meet it. A width of 262144 took 3.6 s to print before it was checked.
+func TestLoadRefusesUnparsableRecords(t *testing.T) {
+	for _, c := range []struct { // recordCase
+		damage func(r *record)
+		name   string
+	}{
+		{func(r *record) { r.desc = []byte("%.262144d") }, "printf width past 1024"},
+		{func(r *record) { r.desc = []byte("%d %d") }, "two conversions"},
+		{func(r *record) { r.desc = []byte("%s") }, "conversion for the wrong type"},
+		{func(r *record) { r.typ = tInvalid }, "no type"},
+		{func(r *record) { r.reln = 'Z' }, "unknown relation"},
+		{func(r *record) { r.factorOp = '%' }, "unknown strength operator"},
+		{func(r *record) { r.factorOp, r.factor = '/', 0 }, "strength divides by zero"},
+	} {
+		db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte("0\x09byte\x09x\x09b %d\x0a")}}, CompileOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.damage(&db.recs[0])
+		blob, err := db.Marshal()
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if _, err := Load(blob); err == nil {
+			t.Errorf("%s: Load accepted the record", c.name)
+		}
+	}
+}
+
+// TestLoadRefusesBadRegex: Load refuses a regex RE2 rejects, as Compile
+// does, instead of the matcher meeting a line with no pattern.
+func TestLoadRefusesBadRegex(t *testing.T) {
+	db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte("0\x09regex\x09abcd\x09R\x0a0\x09byte\x09x\x09B\x0a")}}, CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range db.recs {
+		if db.recs[i].typ == tRegex {
+			copy(db.recs[i].value, "a(b")
+		}
+	}
+	blob, err := db.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(blob); err == nil {
+		t.Error("Load accepted a regex RE2 rejects")
+	}
+}

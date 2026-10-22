@@ -89,9 +89,9 @@ func (db *Database) regexSlot(rec int32) *regexSlot {
 	return &db.regexes[db.meta[rec].rx]
 }
 
-// regex returns the compiled pattern of a line, nil when it has none or
-// the pattern does not compile (which Compile refuses up front; a loaded
-// database is trusted to have been produced by Compile).
+// regex returns the compiled pattern of a line, nil when it has none.
+// Compile and Load refuse a pattern that does not compile; the embedded
+// database compiles its patterns here, on first use.
 func (db *Database) regex(rec int32) *regexp.Regexp {
 	if rec < 0 || int(rec) >= len(db.meta) || db.meta[rec].rx < 0 {
 		return nil

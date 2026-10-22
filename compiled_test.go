@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -152,6 +153,17 @@ func FuzzLoad(f *testing.F) {
 	}
 	f.Add(good[:4096])
 	f.Add([]byte("SMDB\x01\x00"))
+	for _, src := range fuzzLoadSources() { // whole small databases, so mutation starts past the header
+		small, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(src)}}, CompileOptions{})
+		if err != nil {
+			f.Fatal(err)
+		}
+		blob, err := small.Marshal()
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(blob)
+	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var db *Database
 		var err error
@@ -160,6 +172,80 @@ func FuzzLoad(f *testing.F) {
 			fuzzBounded(t, "Identify with a loaded database", func() { db.Identify(data) })
 		}
 	})
+}
+
+// fuzzLoadSources are small rule sets covering the record kinds the
+// matcher treats differently.
+func fuzzLoadSources() []string {
+	return []string{
+		"0\tbyte\tx\tbyte %d\n>1\tbeshort\t>0\tshort %x\n>>3\tlelong&0xff\t=1\tlong %u\n",
+		"0\tstring\tAB\tstring\n>2\tpstring/H\tx\tp %s\n>2\tsearch/64\tCD\tsearch\n",
+		"0\tregex/20l\t^[a-z]+\tword %s\n0\tlequad\tx\tq %lld\n>8\tleqdate\tx\tdate %s\n",
+		"0\tname\tsub\n>0\tbyte\tx\tsub %d\n0\tstring\tXY\tuse\n>2\tuse\tsub\n>(2.l+1)\tbyte\tx\tind %d\n",
+		"0\tder\tseq\tder\n>&0\tder\tint\tint\n0\tlefloat\tx\tf %f\n0\tguid\tx\tg %s\n0\tindirect\tx\tindirect\n",
+	}
+}
+
+// FuzzLoadFields: one scalar field of one record of a small compiled
+// database set to any value, then marshalled and loaded. Load refuses it,
+// or the database identifies within budget. Mutating a decoded database
+// reaches every field with every value, which mutating bytes rarely does.
+func FuzzLoadFields(f *testing.F) {
+	f.Add(uint8(0), uint16(0), uint8(0), uint64(0))
+	f.Add(uint8(2), uint16(0), uint8(6), uint64(0x80000000))
+	f.Fuzz(func(t *testing.T, src uint8, rec uint16, field uint8, v uint64) {
+		db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(fuzzLoadSources()[int(src)%len(fuzzLoadSources())])}}, CompileOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		setScalarField(&db.recs[int(rec)%len(db.recs)], field, v)
+		blob, err := db.Marshal()
+		if err != nil {
+			return
+		}
+		var loaded *Database
+		fuzzBounded(t, "Load", func() { loaded, err = Load(blob) })
+		if err != nil {
+			return
+		}
+		for _, in := range [][]byte{blob, []byte("ABCDXY0123456789abcdef"), make([]byte, 64)} {
+			fuzzBounded(t, "Identify with a mutated database", func() { loaded.Identify(in) })
+		}
+	})
+}
+
+// setScalarField sets field (modulo the number of fields) of r to the low
+// bits of v. vallen stays within MAXstring, which Marshal asserts and
+// Load's structural check already refuses past.
+func setScalarField(r *record, field uint8, v uint64) {
+	switch field % 13 {
+	case 0:
+		r.flag = low16(v)
+	case 1:
+		r.contLevel = low8(v)
+	case 2:
+		r.factor = low8(v)
+	case 3:
+		r.reln = low8(v)
+	case 4:
+		r.vallen = low8(v) % (maxString + 1)
+	case 5:
+		r.typ = fileType(low8(v))
+	case 6:
+		r.inType = fileType(low8(v))
+	case 7:
+		r.inOp = low8(v)
+	case 8:
+		r.maskOp = low8(v)
+	case 9:
+		r.factorOp = low8(v)
+	case 10:
+		r.offset = wrapInt32(int64(low32(v)))
+	case 11:
+		r.inOffset = wrapInt32(int64(low32(v)))
+	default:
+		r.maskOrStr = v
+	}
 }
 
 // sameRecord compares two records field by field; the byte fields may

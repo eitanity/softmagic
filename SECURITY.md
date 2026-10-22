@@ -21,12 +21,17 @@ softmagic is pre-1.0. Fixes go into the latest minor release only; there are no 
 |-------|-------|-----|
 | The bytes being identified (`Identify*` data, an `io.ReaderAt`) | untrusted | the reason the library exists; every per-file cost is limited |
 | Magic rules (`compile.Compile`, `CompileSources`, `Join`) | trusted, like code | rules choose the answer for every file |
-| A compiled database (`Load`, `LoadEager`) | trusted, like code | `Load` checks the format and structure, not where the bytes came from |
+| A compiled database (`Load`, `LoadEager`) | trusted for its answers, not for safety | it chooses the answer for every file, like rules; but `Load` refuses any record `Compile` could not have produced, so its bytes can come from anywhere |
 | The embedded database (`Default`) | trusted | built from the vendored `file` 5.48 Magdir in this repository |
 
 A rule can only read the input and write the answer: it cannot open a file, start a process or
-use the network. The library itself has no `unsafe`, cgo, `os/exec` or network code, and links
-no module outside the standard library.
+use the network. `Load` checks the format and structure, the type, relation, strength and
+printf conversion of every record (a conversion's width is at most 1024, as for compiled rules),
+which set each entry belongs to, and that every regex compiles. `FuzzLoad` mutates whole
+compiled databases and `FuzzLoadFields` sets any field of any record to any value.
+
+The library itself has no `unsafe`, cgo, `os/exec` or network code, and links no module outside
+the standard library.
 
 ## Using softmagic on untrusted input
 
@@ -60,9 +65,11 @@ between rule steps and `Examined.Truncated` is `"time"`. Each rule step is itsel
 the limits below.
 
 **Bound concurrency.** A `Database` is safe for concurrent use. Each call in flight holds a
-pooled scan whose buffers grow to what the call needs and are kept for reuse: up to the
-`MaxBytes` window plus about six times the encoding window (384 KiB at the default 64 KiB).
-Limit the number of calls in flight to bound memory.
+pooled scan with the `MaxBytes` window, about six times the encoding window (384 KiB at the
+default 64 KiB), and at most `Options.MaxMemory` (64 MiB by default) for data read past the
+window: Composite Document File tables and streams, ELF data and the file's tail. A scan that
+held more than 8 MiB of that, or a window over 8 MiB, drops it on returning to the pool. Limit
+the number of calls in flight to bound memory.
 
 **A `ReaderAt` can stall a call.** `IdentifyAt` reads through the caller's `io.ReaderAt`, and a
 read already in progress is not interrupted by the context. Give the reader its own timeout if
@@ -77,8 +84,8 @@ interrupted call to leave behind.
 
 ## Limits
 
-These are `file`'s limits, with its defaults. `Options.Limits` and `Options.MaxBytes` change
-them; zero means the default.
+These are `file`'s limits, with its defaults, and two of the library's own. `Options.Limits`,
+`Options.MaxBytes` and `Options.MaxMemory` change them; zero means the default.
 
 | Limit | Default |
 |-------|---------|
@@ -90,6 +97,8 @@ them; zero means the default.
 | encoding window | 64 KiB |
 | ELF program headers, sections, notes, note size | `file` 5.48's values |
 | answer length | 4096 bytes |
+| memory for data read past the window (`MaxMemory`, not in `file`) | 64 MiB |
+| one Composite Document File sector chain (not in `file`) | 10000 × 4096 bytes |
 
 ## Dependencies
 
@@ -103,4 +112,6 @@ a consumer's module graph (`go list -m all`).
 `make test` runs every test with assertions on and the race detector. `make lint` runs `go vet`,
 staticcheck, govulncheck, gosec and golangci-lint. Fuzzers cover identification from a slice and
 from a reader (`FuzzIdentify`, `FuzzIdentifyAt`), the rule compiler with joined and reloaded
-databases (`FuzzCompile`), and the compiled-database decoder (`FuzzLoad`).
+databases (`FuzzCompile`), and the compiled-database decoder (`FuzzLoad`, `FuzzLoadFields`).
+`make fuzz` runs each of them on amd64 and 386, with assertions on and as released, and every
+fuzzed call fails if it allocates more than 64 MiB or takes more than 2 seconds.

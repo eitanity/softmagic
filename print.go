@@ -70,7 +70,9 @@ func (s *scan) mprintOther(m *record, desc string) { // rule
 	case tOctal:
 		s.printfStr(desc, []byte(fmtNumber(m.valueBytes(), 8)))
 	default:
-		s.fail("mprint on a type it does not handle")
+		// beid3 and leid3 under "!" match without a value. The reference's
+		// mprint reports "invalid m->type in mprint()" and stops; that
+		// error is not reproduced here, and the line prints nothing.
 	}
 }
 

@@ -45,6 +45,8 @@ var embeddedDatabase []byte
 // Magdir of the release named by ImplementsFile. Load it once and keep it;
 // it is safe for concurrent use. Its regexes compile on first use, which
 // keeps the load near a millisecond; DefaultEager compiles them now.
+// Unlike Load it does not compile them to check them: the embedded bytes
+// are what Compile produced, which TestEmbeddedCurrent enforces.
 func Default() (*Database, error) {
 	return load(embeddedDatabase)
 }
@@ -61,14 +63,10 @@ func DefaultEager() (*Database, error) {
 	return db.precompile(), nil
 }
 
-// LoadEager is Load with every regex compiled before it returns; see
-// DefaultEager.
+// LoadEager is Load, which already compiles every regex before it
+// returns; it is kept beside DefaultEager for callers that name it.
 func LoadEager(data []byte) (*Database, error) {
-	db, err := Load(data)
-	if err != nil {
-		return nil, err
-	}
-	return db.precompile(), nil
+	return Load(data)
 }
 
 // LoadError is a refused compiled database.
@@ -269,9 +267,22 @@ func (d *dec) field(max, need int) []byte {
 }
 
 // Load reads a compiled database. It refuses a different format version
-// or a database compiled for a different file(1) release, naming both.
+// or a database compiled for a different file(1) release, naming both,
+// and any record Compile could not have produced, including a regex RE2
+// rejects: every regex is compiled before Load returns (about 1 ms for
+// the whole Magdir), since the bytes may come from anywhere.
 func Load(data []byte) (*Database, error) {
-	return load(append([]byte(nil), data...))
+	db, err := load(append([]byte(nil), data...))
+	if err != nil {
+		return nil, err
+	}
+	db.precompile()
+	for i := range db.regexes {
+		if db.regexes[i].re == nil {
+			return nil, &LoadError{Msg: "regex " + strconv.Itoa(i) + " `" + db.regexes[i].pattern + "' rejected by RE2"}
+		}
+	}
+	return db, nil
 }
 
 // load reads a compiled database whose bytes it may keep: the records'
@@ -376,6 +387,9 @@ func (d *dec) loadRecords(db *Database) error { // database
 		if d.err {
 			return &LoadError{Msg: "record " + strconv.Itoa(i) + " fields malformed"}
 		}
+		if msg := loadedRecordProblem(r); msg != "" {
+			return &LoadError{Msg: "record " + strconv.Itoa(i) + ": " + msg}
+		}
 		db.meta[i] = lineMeta{file: smallInt32(file), rx: -1}
 		if r.typ == tRegex {
 			db.meta[i].rx = db.addRegex(translateRegex(r.valueString(), r.strFlags()), nil, false, false, nil)
@@ -413,6 +427,44 @@ func (d *dec) loadLiterals(db *Database) error { // database
 		db.regexes[i].fold, db.regexes[i].lineStart = fold, lineStart
 	}
 	return nil
+}
+
+// loadedRecordProblem is "" when a loaded record has what the parser
+// guarantees a compiled one and the matcher relies on: a type, a
+// relation, a strength operator that cannot divide by zero,
+// and a description whose printf conversion is valid for the type.
+func loadedRecordProblem(r *record) string { // rule
+	switch {
+	case r.typ == tInvalid:
+		return "no type"
+	case !validRelation(r.reln):
+		return "relation " + strconv.Itoa(int(r.reln)) + " unknown"
+	case !validFactorOp(r.factorOp):
+		return "strength operator " + strconv.Itoa(int(r.factorOp)) + " unknown"
+	case r.factorOp == '/' && r.factor == 0:
+		return "strength divides by zero"
+	}
+	return formatProblem(r.typ, r.desc)
+}
+
+// validRelation is a relation parseRelation can produce.
+func validRelation(c byte) bool {
+	switch c {
+	case '<', '>', '&', '^', '=', '!', 'x':
+		return true
+	default:
+		return false
+	}
+}
+
+// validFactorOp is a strength operator parseStrength can produce, or none.
+func validFactorOp(c byte) bool {
+	switch c {
+	case 0, '+', '-', '*', '/':
+		return true
+	default:
+		return false
+	}
 }
 
 // recordScalarSize is the fixed part of a record: struct magic's scalar
@@ -476,9 +528,8 @@ func checkMap(db *Database, m *dbMap, expect int32) (int32, error) { // dbMap
 	invariant.Check(expect >= 0, "line index non-negative")
 	for s := 0; s < 2; s++ { // setIndex
 		for _, e := range m.sets[s] { // entry
-			if e.first != expect || e.count <= 0 || int64(e.first)+int64(e.count) > int64(len(db.recs)) ||
-				db.recs[e.first].contLevel != 0 {
-				return 0, &LoadError{Msg: "entry table inconsistent with records"}
+			if msg := entryProblem(db, e, expect, s); msg != "" {
+				return 0, &LoadError{Msg: msg}
 			}
 			expect += e.count
 			if s == 1 {
@@ -490,6 +541,20 @@ func checkMap(db *Database, m *dbMap, expect int32) (int32, error) { // dbMap
 		}
 	}
 	return expect, nil
+}
+
+// entryProblem is "" when entry e of set s starts at line expect, lies
+// within the records, starts a top-level line, and is a name entry
+// exactly when s is the name set.
+func entryProblem(db *Database, e entry, expect int32, s int) string { // setIndex
+	if e.first != expect || e.count <= 0 || int64(e.first)+int64(e.count) > int64(len(db.recs)) ||
+		db.recs[e.first].contLevel != 0 {
+		return "entry table inconsistent with records"
+	}
+	if (db.recs[e.first].typ == tName) != (s == 1) {
+		return "entry " + strconv.Itoa(int(e.first)) + " in the wrong set for its type"
+	}
+	return ""
 }
 
 // checkUseNames verifies every "use" line names a compiled "name" entry.

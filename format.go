@@ -11,30 +11,41 @@ import "github.com/eitanity/softmagic/internal/invariant"
 // checkFormat verifies that the description's one printf conversion, if
 // any, is valid for the record's type.
 func (p *lineParser) checkFormat() error {
-	invariant.Check(p.rec != nil, "record to check")
-	r := p.rec     // rule
-	d := r.desc[:] // description
-	i := 0         // cursor
+	if !invariant.Check(p.rec != nil, "record to check") {
+		return p.errorf("no record to check")
+	}
+	if msg := formatProblem(p.rec.typ, p.rec.desc[:]); msg != "" {
+		return p.errorf(msg)
+	}
+	return nil
+}
+
+// formatProblem is check_format: "" when the description's one printf
+// conversion, if any, is valid for the record's type, else the
+// reference's message. Load applies it to every record too, since the
+// printf code relies on what it bounds (a width of at most 1024).
+func formatProblem(t fileType, d []byte) string { // fileType, description
+	i := 0 // cursor
 	for ; i < len(d) && d[i] != 0 && d[i] != '%'; i++ {
 	}
 	if i >= len(d) || d[i] == 0 {
-		return nil
+		return ""
 	}
-	if formatClass(r.typ) == fmtNone {
-		return p.errorf("no format string for `" + r.descString() + "' with type `" + typeName(r.typ) + "'")
+	if formatClass(t) == fmtNone {
+		return "no format string for `" + cString(d) + "' with type `" + typeName(t) + "'"
 	}
-	end, ok := checkFormatType(d, i+1, r.typ)
+	end, ok := checkFormatType(d, i+1, t)
 	if !ok {
-		return p.errorf("printf format is not valid for type `" + typeName(r.typ) +
-			"' in description `" + r.descString() + "'")
+		return "printf format is not valid for type `" + typeName(t) +
+			"' in description `" + cString(d) + "'"
 	}
 	for j := end; j < len(d) && d[j] != 0; j++ {
 		if d[j] == '%' {
-			return p.errorf("too many format strings for `" + typeName(r.typ) +
-				"' with description `" + r.descString() + "'")
+			return "too many format strings for `" + typeName(t) +
+				"' with description `" + cString(d) + "'"
 		}
 	}
-	return nil
+	return ""
 }
 
 // checkFormatType validates the conversion starting at d[i] (after '%') and

@@ -134,7 +134,11 @@ func (s *scan) mconvertFloat(m *record, t fileType) bool { // magicLine
 	case tRegex, tSearch, tDefault, tClear, tName, tUse, tDer, tGUID, tLeGUID, tBeGUID:
 		return true
 	default:
-		return s.fail("mconvert on a type it does not handle")
+		// beid3 and leid3 parse as line types but have no conversion. The
+		// reference's mconvert refuses the line too, and reports "invalid
+		// type in mconvert()", which reaches its answer only from a
+		// continuation line; that error is not reproduced here.
+		return false
 	}
 }
 
