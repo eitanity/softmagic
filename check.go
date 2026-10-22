@@ -33,8 +33,8 @@ func (s *scan) magicCheck(m *record, f *frame) bool { // rule
 	case isWidth8(m.typ) && !isDoubleType(m.typ), m.typ == tOffset:
 		v = binary.LittleEndian.Uint64(s.value[:])
 	case isFloatType(m.typ):
-		return compareFloat(m.reln, float64(math.Float32frombits(binary.LittleEndian.Uint32(m.value[0:4]))),
-			float64(math.Float32frombits(binary.LittleEndian.Uint32(s.value[:]))))
+		return compareFloat(m.reln, widenFloat32(binary.LittleEndian.Uint32(m.value[0:4])),
+			widenFloat32(binary.LittleEndian.Uint32(s.value[:])))
 	case isDoubleType(m.typ):
 		return compareFloat(m.reln, math.Float64frombits(binary.LittleEndian.Uint64(m.value[0:8])),
 			math.Float64frombits(binary.LittleEndian.Uint64(s.value[:])))

@@ -21,7 +21,7 @@ func TestFormatCFloat(t *testing.T) {
 	}{
 		{"nan", math.NaN(), 'f'},
 		{"-nan", negNaN, 'f'},
-		{"-nan", float64(math.Float32frombits(0xffc00000)), 'g'},
+		{"-nan", widenFloat32(0xffc00000), 'g'},
 		{"inf", math.Inf(1), 'e'},
 		{"-inf", math.Inf(-1), 'g'},
 		{"1.500000", 1.5, 'f'},
@@ -103,5 +103,33 @@ func TestEscapeText(t *testing.T) {
 	}
 	if !iswprint(' ') || iswprint(0x7f) || !iswprint(0xe000) || iswprint(0x10ffff) {
 		t.Error("iswprint edges")
+	}
+}
+
+// TestWidenFloat32: float32 bit patterns widen to the same float64 bits
+// on every host, NaNs included (MIPS hardware loses a NaN's sign).
+func TestWidenFloat32(t *testing.T) {
+	for _, c := range []struct{ in, want uint64 }{ // widenCase
+		{0x00000000, 0x0000000000000000}, // +0
+		{0x80000000, 0x8000000000000000}, // -0
+		{0x3fc00000, 0x3ff8000000000000}, // 1.5
+		{0x00000001, 0x36a0000000000000}, // smallest denormal
+		{0x7f800000, 0x7ff0000000000000}, // +Inf
+		{0xff800000, 0xfff0000000000000}, // -Inf
+		{0x7fc00000, 0x7ff8000000000000}, // quiet NaN
+		{0xffc00000, 0xfff8000000000000}, // negative quiet NaN
+		{0x7f800001, 0x7ff8000020000000}, // signalling NaN, made quiet
+		{0xff812345, 0xfff82468a0000000}, // negative NaN with a payload
+	} {
+		if got := math.Float64bits(widenFloat32(low32(c.in))); got != c.want {
+			t.Errorf("widenFloat32(%#x) = %#x, want %#x", c.in, got, c.want)
+		}
+		want := low32(c.in) // a NaN comes back quiet
+		if want&0x7f800000 == 0x7f800000 && want&0x7fffff != 0 {
+			want |= 0x400000
+		}
+		if back := narrowFloat64(widenFloat32(low32(c.in))); back != want {
+			t.Errorf("narrowFloat64(widenFloat32(%#x)) = %#x, want %#x", c.in, back, want)
+		}
 	}
 }

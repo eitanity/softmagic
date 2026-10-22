@@ -244,7 +244,7 @@ func (pr cdfPrinter) propertyInfo(c *cdfFile, props []cdfProp) int {
 		case cdfTypeUnsigned:
 			pr.field(name, strconv.FormatUint(p.u64&0xffffffff, 10))
 		case cdfTypeFloat:
-			pr.field(name, strconv.FormatFloat(float64(math.Float32frombits(low32(p.u64))), 'g', 6, 64))
+			pr.field(name, strconv.FormatFloat(widenFloat32(low32(p.u64)), 'g', 6, 64))
 		case cdfTypeDouble:
 			pr.field(name, strconv.FormatFloat(math.Float64frombits(p.u64), 'g', 6, 64))
 		case cdfTypeString, cdfTypeWString:

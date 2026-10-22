@@ -80,3 +80,27 @@ func intFromU32(v uint32) int {
 	}
 	return int(v)
 }
+
+// widenFloat32 is a float32's bits as a float64, the same on every host. A
+// value that is not a NaN widens exactly anywhere; a NaN keeps its sign and
+// payload and is made quiet, as amd64 and arm64 do, where MIPS would
+// substitute its own default NaN and lose the sign that printf shows.
+func widenFloat32(b uint32) float64 {
+	if b&0x7f800000 != 0x7f800000 || b&0x7fffff == 0 {
+		return float64(math.Float32frombits(b))
+	}
+	sign := uint64(b>>31) << 63
+	frac := uint64(b&0x7fffff|0x400000) << 29
+	return math.Float64frombits(sign | 0x7ff<<52 | frac)
+}
+
+// narrowFloat64 is widenFloat32's inverse: a float64 as float32 bits, the
+// same on every host, a NaN keeping its sign and the top of its payload.
+func narrowFloat64(f float64) uint32 {
+	if !math.IsNaN(f) {
+		return math.Float32bits(float32(f))
+	}
+	b := math.Float64bits(f)
+	sign := low32(b>>63) << 31
+	return sign | 0x7fc00000 | low32(b>>29)&0x3fffff
+}

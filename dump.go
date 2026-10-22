@@ -146,7 +146,7 @@ func dumpValue(b *strings.Builder, r *lineRec) { // builder
 	case tPString, tString, tRegex, tBeString16, tLeString16, tSearch:
 		showStr(b, v[:r.vallen])
 	case tFloat, tBeFloat, tLeFloat:
-		b.WriteString(upper(formatCFloat(float64(math.Float32frombits(binary.LittleEndian.Uint32(v))), 'g', 6)))
+		b.WriteString(upper(formatCFloat(widenFloat32(binary.LittleEndian.Uint32(v)), 'g', 6)))
 	case tDouble, tBeDouble, tLeDouble:
 		b.WriteString(upper(formatCFloat(math.Float64frombits(binary.LittleEndian.Uint64(v)), 'g', 6)))
 	case tLeVarint, tBeVarint:

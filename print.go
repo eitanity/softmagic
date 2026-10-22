@@ -42,7 +42,7 @@ func (s *scan) mprint(m *record, f *frame) { // rule
 	case isDateType(m.typ):
 		s.printfStr(desc, []byte(fmtDateTime(m.typ, v)))
 	case isFloatType(m.typ):
-		s.printFloat(desc, float64(math.Float32frombits(binary.LittleEndian.Uint32(v))))
+		s.printFloat(desc, widenFloat32(binary.LittleEndian.Uint32(v)))
 	case isDoubleType(m.typ):
 		s.printFloat(desc, math.Float64frombits(binary.LittleEndian.Uint64(v)))
 	case m.typ == tSearch || m.typ == tRegex:

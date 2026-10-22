@@ -236,15 +236,15 @@ func (s *scan) cvtFloat(m *record, bits uint32) bool {
 		s.truncate(TruncInvariant)
 		return false
 	}
-	f := float64(math.Float32frombits(bits)) // floatValue
-	if m.maskOrStr != 0 {
-		g, ok := applyFloatOp(m.maskOp&opsMask, f, float64(float32(m.maskOrStr)))
-		if !ok {
-			return false
-		}
-		f = g
+	if m.maskOrStr == 0 {
+		binary.LittleEndian.PutUint32(s.value[0:4], bits) // no operator: the value is the file's
+		return true
 	}
-	binary.LittleEndian.PutUint32(s.value[0:4], math.Float32bits(float32(f)))
+	g, ok := applyFloatOp(m.maskOp&opsMask, widenFloat32(bits), float64(float32(m.maskOrStr)))
+	if !ok {
+		return false
+	}
+	binary.LittleEndian.PutUint32(s.value[0:4], narrowFloat64(g))
 	return true
 }
 
