@@ -17,6 +17,18 @@ the documentation or other materials provided with the distribution. The Go code
 This module is a library only. The command-line tool is the separate module
 `github.com/eitanity/softmagic-cli`.
 
+## Install
+
+```
+go get code.eitanity.com/softmagic
+```
+
+The module was renamed from `github.com/eitanity/softmagic` to `code.eitanity.com/softmagic`
+after v0.4.0. The repository is unchanged: the new path resolves to it. Releases up to v0.4.0
+remain available under the old path; later releases are published under the new path only, so
+an importer moves to them by replacing `github.com/eitanity/softmagic` with
+`code.eitanity.com/softmagic` in its imports and `go.mod`.
+
 ## Use
 
 ```go
