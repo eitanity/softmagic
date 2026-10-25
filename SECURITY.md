@@ -4,16 +4,22 @@
 
 Report privately through GitHub: the repository's **Security** tab, **Report a vulnerability**.
 Please do not open a public issue for a vulnerability. Include the input that triggers it (or
-how to build it), the call and `Options` used, and the version from `go.mod`.
+how to build it), the call and `Options` used, and the module path and version from `go.mod`.
 
 ## Supported versions
 
 softmagic is pre-1.0. Fixes go into the latest minor release only; there are no backports.
 
-| Version | Supported |
-|---------|-----------|
-| 0.3.x   | yes       |
-| < 0.3   | no        |
+The module is published as `code.eitanity.com/softmagic` from v0.4.1. Earlier releases were
+published as `github.com/eitanity/softmagic` and stay available under that path, but fixes are
+released under the new path only: to receive them, replace the old path with the new one in
+your imports and `go.mod`.
+
+| Version | Module path | Supported |
+|---------|-------------|-----------|
+| 0.4.1 and later 0.4.x | `code.eitanity.com/softmagic` | yes |
+| 0.4.0 | `github.com/eitanity/softmagic` | no: move to `code.eitanity.com/softmagic` |
+| < 0.4 | `github.com/eitanity/softmagic` | no |
 
 ## What softmagic trusts
 
