@@ -15,7 +15,7 @@ the documentation or other materials provided with the distribution. The Go code
 2026 Eitanity Systems VCC under the BSD-2-Clause licence in `LICENSE`.
 
 This module is a library only. The command-line tool is the separate module
-`github.com/eitanity/softmagic-cli`.
+`code.eitanity.com/softmagic-cli`.
 
 ## Install
 

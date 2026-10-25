@@ -10,7 +10,7 @@
 // that notice is reproduced in COPYING.
 //
 // This module is a library only. The command-line tool lives in the separate
-// module github.com/eitanity/softmagic-cli.
+// module code.eitanity.com/softmagic-cli.
 package softmagic
 
 // ImplementsFile is the file(1) release whose grammar, strength function and
