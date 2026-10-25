@@ -109,8 +109,8 @@ type cdfStream struct {
 	tab    []byte
 	props  []cdfProp // scratch for the properties read from this stream
 	len    int
-	dirlen int
 	ss     int
+	dirlen uint32
 }
 
 func (st *cdfStream) size() int { return st.ss * st.len }
@@ -153,7 +153,7 @@ func (c *cdfFile) read(off, n int64) ([]byte, bool) {
 	if off < 0 || n < 0 || n > cdfSATLimit {
 		return nil, false
 	}
-	return c.s.readAt(off, int(n))
+	return c.s.readAt(off, intFromI64(n))
 }
 
 // readSector is cdf_read_sector: sector id's bytes.
@@ -262,7 +262,7 @@ func (c *cdfFile) satGeometry(nsatpersec int) (used, satLen int, ok bool) {
 	i := 0              // usedEntries
 	for ; i < len(h.masterSAT) && h.masterSAT[i] != cdfSecidFree; i++ {
 	}
-	secLimit := int(low32(maxUint32 / bitsOfInt64(int64(64*ss)))) // fits int32: ss is at least 4
+	secLimit := intFromU32(low32(maxUint32 / bitsOfInt64(int64(64*ss)))) // fits int32: ss is at least 4
 	if (nsatpersec > 0 && intFromU32(h.numMasterSAT) > secLimit/nsatpersec) || i > secLimit {
 		return 0, 0, false
 	}
@@ -366,10 +366,10 @@ func (c *cdfFile) longChainFits(n int) bool {
 
 // readLongChain is cdf_read_long_sector_chain.
 func (c *cdfFile) readLongChain(sid int32, length uint32) (cdfStream, bool) {
-	ss := c.h.secSize()                          // sectorSize
-	st := cdfStream{ss: ss, dirlen: int(length)} // stream
-	if int64(st.dirlen) < int64(c.h.minStdStream) {
-		st.dirlen = int(c.h.minStdStream)
+	ss := c.h.secSize()                     // sectorSize
+	st := cdfStream{ss: ss, dirlen: length} // stream
+	if st.dirlen < c.h.minStdStream {
+		st.dirlen = c.h.minStdStream
 	}
 	n := countChain(c.sat, sid) // chainLength
 	if sid == cdfSecidEOC || length == 0 {
@@ -430,7 +430,7 @@ func (c *cdfFile) partialSector(id int32) ([]byte, bool) {
 	if start >= c.s.inputSize() {
 		return nil, false
 	}
-	return c.s.readUpTo(start, int(ss))
+	return c.s.readUpTo(start, c.h.secSize())
 }
 
 // readShortChain is cdf_read_short_sector_chain.
@@ -444,7 +444,7 @@ func (c *cdfFile) readShortChain(sid int32, length uint32) (cdfStream, bool) {
 	if !ok {
 		return cdfStream{}, false
 	}
-	st := cdfStream{ss: ss, dirlen: int(length), len: n, tab: tab} // stream
+	st := cdfStream{ss: ss, dirlen: length, len: n, tab: tab} // stream
 	for i := 0; i < cdfLoopLimit && sid >= 0; i++ {
 		pos := int64(sid) * int64(ss)
 		if i >= n || pos+int64(ss) > int64(c.sst.size()) {
@@ -621,7 +621,7 @@ func propertyPos(st *cdfStream, p, e, i int) int { // sectionStart
 	if ofs > int64(e-p) {
 		return -1
 	}
-	return p + int(ofs)
+	return p + intFromI64(ofs)
 }
 
 // readPropertyInfo is cdf_read_property_info over the section at offs.
@@ -629,7 +629,7 @@ func readPropertyInfo(st *cdfStream, offs uint32) ([]cdfProp, bool) { // stream
 	if offs > 0xffffffff/4 || int64(offs)+8 > int64(st.size()) {
 		return nil, false
 	}
-	shp := int(offs)
+	shp := intFromU32(offs)
 	shLen := getu32(st.tab, shp, 0)
 	if shLen > cdfShlenLimit || int64(shp)+int64(shLen) > int64(st.size()) {
 		return nil, false
@@ -638,16 +638,17 @@ func readPropertyInfo(st *cdfStream, offs uint32) ([]cdfProp, bool) { // stream
 	if nprops > cdfPropLimit || nprops > cdfElementLimit {
 		return nil, false
 	}
-	p, e := shp+8, shp+int(shLen) // sectionStart
+	p, e := shp+8, shp+intFromU32(shLen) // sectionStart
 	if p >= e {
 		return nil, false
 	}
-	if cap(st.props) < int(nprops) {
+	count := intFromU32(nprops) // propertyCount
+	if cap(st.props) < count {
 		st.props = make([]cdfProp, 0, nprops)
 	}
 	props := st.props[:0]
-	pr := propReader{st: st, p: p, e: e, n: int(nprops)}
-	for i := 0; i < int(nprops); i++ {
+	pr := propReader{st: st, p: p, e: e, n: count}
+	for i := 0; i < count; i++ {
 		var ok bool
 		props, i, ok = pr.one(props, i)
 		if !ok {
@@ -924,10 +925,13 @@ func cdfElapsed(ts int64) string { // timestamp
 
 // dec2 is printf's %.2d: the sign, then at least two digits.
 func dec2(n int64) string {
-	if n < 0 {
-		return "-" + pad2(int(-n))
+	switch {
+	case n < 0 && n > -10:
+		return "-0" + strconv.FormatInt(-n, 10)
+	case n >= 0 && n < 10:
+		return "0" + strconv.FormatInt(n, 10)
 	}
-	return pad2(int(n))
+	return strconv.FormatInt(n, 10)
 }
 
 // cdfTimestamp is cdf_timestamp_to_timespec's seconds: the reference's
@@ -942,13 +946,13 @@ func cdfTimestamp(t int64) (int64, bool) { // timestamp
 	t /= 60
 	hour := int(t % 24)
 	t /= 24
-	year := int(cdfBaseYear + t/365)
+	year := intFromI64(cdfBaseYear + t/365)
 	if year > 9999 {
 		return 0, false
 	}
 	t -= int64(cdfDays(year)) - 1
-	day := cdfGetDay(year, int(t))
-	month := cdfGetMonth(year, int(t))
+	day := cdfGetDay(year, intFromI64(t))
+	month := cdfGetMonth(year, intFromI64(t))
 	asUTC := time.Date(year, time.Month(month+1), day, hour, minute, sec, 0, time.UTC)
 	local := time.Date(year, time.Month(month+1), day, hour, minute, sec, 0, time.Local)
 	_, off := local.Zone()
@@ -970,13 +974,13 @@ func cdfTime(t int64) string { // timestamp
 	t /= 60
 	hour := int(t % 24)
 	t /= 24
-	year := int(cdfBaseYear + t/365)
+	year := intFromI64(cdfBaseYear + t/365)
 	if year > 9999 {
 		return "*Bad*"
 	}
 	t -= int64(cdfDays(year)) - 1
-	day := cdfGetDay(year, int(t))
-	month := cdfGetMonth(year, int(t))
+	day := cdfGetDay(year, intFromI64(t))
+	month := cdfGetMonth(year, intFromI64(t))
 	tm := time.Date(year, time.Month(month+1), day, hour, minute, sec, 0, time.Local)
 	if tm.Unix() > maxCTime {
 		return "*Bad* 0x" + pad16(bitsOfInt64(tm.Unix()))

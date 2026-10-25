@@ -25,7 +25,7 @@ func iswprint(r rune) bool {
 	lo, hi := 0, len(printRanges)
 	// A binary search over fewer than 2^32 runs ends within 32 halvings.
 	for step := 0; step < 32 && lo < hi; step++ {
-		mid := int(uint(lo+hi) >> 1)
+		mid := lo + (hi-lo)/2
 		p := printRanges[mid] // run
 		switch {
 		case r < p.lo:

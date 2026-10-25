@@ -272,7 +272,7 @@ func (st *simhState) record(buf []byte, nbytes uint32) (stop, ok bool) {
 		st.past = true
 		return true, true
 	}
-	n := int(nbytes) // recordLength
+	n := intFromU32(nbytes) // recordLength
 	cbytes, ok := simhLen(buf, st.i+4+n)
 	if !ok || cbytes != nbytes {
 		return false, false

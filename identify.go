@@ -51,12 +51,13 @@ func (db *Database) IdentifyAt(ctx context.Context, r io.ReaderAt, size int64, o
 		n = int64(maxBytes)
 	}
 	s := db.pool.get(db, ctx, nil, o) // scanState
-	if cap(s.inbuf) < int(n) {
+	want := intFromI64(n)             // at most maxBytes
+	if cap(s.inbuf) < want {
 		s.inbuf = make([]byte, n)
 	}
 	got, err := r.ReadAt(s.inbuf[:n], 0)
 	switch {
-	case err == nil || got >= int(n):
+	case err == nil || got >= want:
 	case errors.Is(err, io.EOF):
 		// The input is shorter than size said (a file cut short after its
 		// stat): the reference's read returns the bytes there are, and it

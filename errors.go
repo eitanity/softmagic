@@ -20,5 +20,5 @@ func (e *CompileError) Error() string {
 
 // errorf builds a CompileError for the parser's current position.
 func (p *lineParser) errorf(msg string) error {
-	return &CompileError{File: p.file, Line: int(p.lineno), Msg: msg}
+	return &CompileError{File: p.file, Line: intFromU32(p.lineno), Msg: msg}
 }

@@ -604,7 +604,7 @@ func (s *scan) readAt(off int64, n int) ([]byte, bool) { // length
 		return nil, false
 	}
 	if off+int64(n) <= int64(len(s.buf)) {
-		s.noteRead(int(off) + n)
+		s.noteRead(intFromI64(off) + n)
 		return s.buf[off : off+int64(n)], true
 	}
 	if s.src == nil || off+int64(n) > s.srcSize {
@@ -636,7 +636,7 @@ func (s *scan) readUpTo(off int64, n int) ([]byte, bool) { // maxLength
 		return nil, false
 	}
 	if off+int64(n) > size {
-		n = int(size - off)
+		n = intFromI64(size - off)
 	}
 	return s.readAt(off, n)
 }

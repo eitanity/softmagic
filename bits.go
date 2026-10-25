@@ -81,6 +81,19 @@ func intFromU32(v uint32) int {
 	return int(v)
 }
 
+// intFromI64 is v as an int on any host: outside the host's int range it
+// is clamped, so it is exact wherever a comparison has already bounded v
+// by an int, which is how every caller uses it.
+func intFromI64(v int64) int {
+	switch {
+	case v > math.MaxInt:
+		return math.MaxInt
+	case v < math.MinInt:
+		return math.MinInt
+	}
+	return int(v)
+}
+
 // widenFloat32 is a float32's bits as a float64, the same on every host. A
 // value that is not a NaN widens exactly anywhere; a NaN keeps its sign and
 // payload and is made quiet, as amd64 and arm64 do, where MIPS would

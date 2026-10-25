@@ -296,7 +296,7 @@ func (s *scan) searchCheck(m *record, rec int32) uint64 { // searchRule
 	// takes it to mean, so the clamped value fits an int.
 	limit, rng := len(region), len(region) // searchRange
 	if r := int64(m.strRange()); r < int64(len(region)) {
-		rng = int(r)
+		rng = intFromI64(r)
 	}
 	if rng != 0 && int64(rng)+int64(slen) < int64(limit) {
 		limit = rng + slen

@@ -151,6 +151,6 @@ func (s *scan) prefilterOK(f *frame, pf *prefilter) bool { // frame
 	if read > int64(len(win)) {
 		read = int64(len(win))
 	}
-	s.noteRead(f.base + int(read))
+	s.noteRead(f.base + intFromI64(read))
 	return string(win[off:end]) == string(pf.lit[:pf.n])
 }

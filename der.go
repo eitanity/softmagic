@@ -185,7 +185,7 @@ func (s *scan) derCmp(m *record) bool { // rule
 		return false
 	}
 	want := rest[1:]
-	data := derData(s.rxScratch(maxString), tag, b[p:p+int(tlen)])
+	data := derData(s.rxScratch(maxString), tag, b[p:p+intFromU32(tlen)])
 	if string(data) != want && want != "x" {
 		return false
 	}

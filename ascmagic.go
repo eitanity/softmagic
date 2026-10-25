@@ -125,8 +125,8 @@ func scanLines(win []byte, e encoding) textStats {
 			break
 		}
 		seenCR = st.noteChar(c, i, seenCR, &lastLineEnd)
-		if i > lastLineEnd+maxLineLen && int(i-lastLineEnd) > st.longLine {
-			st.longLine = int(i - lastLineEnd)
+		if run := intFromI64(i - lastLineEnd); i > lastLineEnd+maxLineLen && run > st.longLine {
+			st.longLine = run
 		}
 	}
 	if seenCR && st.cr == 0 && st.crlf == 0 {

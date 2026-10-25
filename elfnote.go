@@ -97,12 +97,12 @@ func (e *elfState) note(data []byte, offset, align int) int {
 	if int64(offset)+int64(namesz) > int64(len(data)) {
 		return len(data)
 	}
-	doff := alignUp(offset+int(namesz), align)
+	doff := alignUp(offset+intFromU32(namesz), align)
 	if int64(doff)+int64(descsz) > int64(len(data)) {
 		return len(data)
 	}
-	next := alignUp(doff+int(descsz), align)
-	n := elfNote{typ: typ, name: data[noff : noff+int(namesz)], desc: data[doff : doff+int(descsz)]}
+	next := alignUp(doff+intFromU32(descsz), align)
+	n := elfNote{typ: typ, name: data[noff : noff+intFromU32(namesz)], desc: data[doff : doff+intFromU32(descsz)]}
 	e.handleNote(&n, data, doff)
 	return next
 }

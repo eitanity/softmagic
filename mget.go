@@ -108,10 +108,10 @@ func (s *scan) fileTail(n int) ([]byte, bool) {
 	if s.srcSize < l {
 		l = s.srcSize
 	}
-	if len(s.tail) == int(l) && s.tailRead {
+	if len(s.tail) == intFromI64(l) && s.tailRead {
 		return s.tail, true
 	}
-	b, ok := s.readAt(s.srcSize-l, int(l)) // tail
+	b, ok := s.readAt(s.srcSize-l, intFromI64(l)) // tail
 	if !ok {
 		return nil, false
 	}
@@ -269,7 +269,7 @@ func (s *scan) mcopy(m *record, indir bool, win []byte, offset uint32) bool { //
 			return s.copyString16(m, win, offset)
 		case tString, tPString:
 			if r := int64(m.strRange()); r != 0 && r < maxString {
-				size = int(r)
+				size = intFromI64(r)
 			}
 		default:
 		}
@@ -286,7 +286,7 @@ func (s *scan) mcopy(m *record, indir bool, win []byte, offset uint32) bool { //
 		return true
 	}
 	n := copy(s.value[:size], win[offset:])
-	s.noteRead(int(offset) + n)
+	s.noteRead(intFromU32(offset) + n)
 	return true
 }
 
@@ -299,7 +299,7 @@ func (s *scan) setSearchRegion(win []byte, offset uint32) {
 	}
 	off := len(win) // the offset compared before it becomes an int, which may be 32 bits
 	if int64(offset) < int64(len(win)) {
-		off = int(offset)
+		off = intFromU32(offset)
 	}
 	s.search = searchState{start: off, length: len(win) - off, offset: off, valid: true}
 }
@@ -318,7 +318,7 @@ func (s *scan) setRegexRegion(m *record, win []byte, offset uint32) { // magicLi
 		s.search = searchState{}
 		return
 	}
-	off := int(offset)
+	off := intFromU32(offset)
 	// The counts are the reference's size_t values, held in int64 until
 	// they are clamped to the window.
 	linecnt, bytecnt := int64(0), int64(m.strRange())
@@ -331,13 +331,13 @@ func (s *scan) setRegexRegion(m *record, win []byte, offset uint32) { // magicLi
 	if bytecnt > int64(s.lim.regex) {
 		bytecnt = int64(s.lim.regex) // the reference's regex_max, applied silently as it does
 	}
-	region := win[off : off+int(bytecnt)]
+	region := win[off : off+intFromI64(bytecnt)]
 	// Every line takes at least a byte, so a count past the region's
 	// length reads all of it, as any larger count would.
 	if linecnt > int64(len(region)) {
 		linecnt = int64(len(region)) + 1
 	}
-	last := regexLineLimit(region, int(linecnt))
+	last := regexLineLimit(region, intFromI64(linecnt))
 	s.search = searchState{start: off, length: last, offset: off, valid: true}
 	s.noteRead(off + last)
 }
@@ -409,7 +409,7 @@ func (s *scan) copyString16(m *record, win []byte, offset uint32) bool { // magi
 		s.oobHit = true
 		return true
 	}
-	src := int(offset)
+	src := intFromU32(offset)
 	if m.typ == tBeString16 {
 		src++
 	}
@@ -848,7 +848,7 @@ func (s *scan) pushIndirect(m *record, f *frame, offset uint32) (int, bool) { //
 	}
 	child := frame{
 		first: s.db.maps[0].first, count: s.db.maps[0].count, kind: kindIndirect, mapIdx: 0,
-		base: f.base + int(offset), n: f.n - int(offset), o: 0,
+		base: f.base + intFromU32(offset), n: f.n - intFromU32(offset), o: 0,
 		mode: flagBinTest, text: f.text, flip: false,
 		savedOutLen: s.outLen, savedNseps: s.nseps, childOffset: offset,
 	}

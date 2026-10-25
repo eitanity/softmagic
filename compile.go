@@ -129,7 +129,7 @@ func (c *compiler) loadLine(file string, lineno uint32, line []byte) error {
 	// A final line with no newline keeps the previous line number, as the
 	// reference counts (a one-line file without a newline is line 0).
 	if !invariant.Check(len(line) > 0 && line[0] != '#', "parsable line") {
-		return &CompileError{File: file, Line: int(lineno), Msg: "empty or comment line parsed"}
+		return &CompileError{File: file, Line: intFromU32(lineno), Msg: "empty or comment line parsed"}
 	}
 	p := lineParser{line: line, file: file, lineno: lineno, tables: &c.tables, dump: c.dump} // parser
 	if len(line) >= 2 && line[0] == '!' && line[1] == ':' {
@@ -281,7 +281,7 @@ func (c *compiler) checkUses(db *Database) error { // database
 			}
 		}
 		return &CompileError{File: c.sourceDir + "/" + c.files[db.meta[i].file],
-			Line: int(r.lineno), Msg: "use of undefined name `" + string(name) + "'"}
+			Line: intFromU32(r.lineno), Msg: "use of undefined name `" + string(name) + "'"}
 	}
 	return nil
 }

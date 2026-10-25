@@ -5,8 +5,9 @@
 // the parts of Holzmann's Power of Ten ("The Power of 10: Rules for
 // Developing Safety-Critical Code", IEEE Computer 39(6), 2006) that no
 // linter checks:
-// recursion, loop forms, assertion density, pointer and func types,
-// package-level state, build tags and suppression comments. It uses only
+// recursion, loop forms, assertion density, conversions to int that a
+// 32-bit host would wrap, pointer and func types, package-level state,
+// build tags and suppression comments. It uses only
 // go/ast, go/parser, go/types and go/importer from the standard library, so
 // it adds nothing to go.mod. The checks bind this module's non-test
 // code; the standard library is called, not audited.

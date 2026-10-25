@@ -215,7 +215,7 @@ func (d *dec) count(limit int) (int, bool) {
 	if uint64(v) > bitsOfInt64(int64(limit)) {
 		return 0, false
 	}
-	return int(v), true
+	return intFromU32(v), true
 }
 
 func (d *dec) need(n int) bool {

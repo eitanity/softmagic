@@ -6,10 +6,12 @@ package rules
 import (
 	"go/ast"
 	"go/build"
+	"go/constant"
 	"go/importer"
 	"go/parser"
 	"go/token"
 	"go/types"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -53,7 +55,7 @@ func loadModule(t *testing.T) (*token.FileSet, []*pkg) {
 	imp := &moduleImporter{done: done, src: importer.ForCompiler(fset, "source", nil)}
 	for _, p := range pkgs { // pkg
 		conf := types.Config{Importer: imp}
-		p.info = &types.Info{Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}}
+		p.info = &types.Info{Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
 		tp, err := conf.Check(p.path, fset, p.files, p.info)
 		if err != nil {
 			t.Fatalf("type-check %s: %v", p.path, err)
@@ -546,6 +548,73 @@ func refersToGlobal(p *pkg, e ast.Expr, globals map[types.Object]bool) bool { //
 			return false
 		}
 	}
+}
+
+// TestRule7IntConversionsChecked rejects a conversion to int of a value
+// whose type is wider than a 32-bit int (uint32, uint64, int64, uint,
+// uintptr) outside bits.go. On a 32-bit host such a conversion turns a
+// value of 2^31 or more from a file or a compiled database into a
+// negative int, which then passes every upper-bound check; intFromU32 and
+// intFromI64 clamp instead. A masked or remaindered value whose constant
+// fits an int32 is allowed, as its range is visible at the conversion.
+func TestRule7IntConversionsChecked(t *testing.T) {
+	fset, pkgs := loadModule(t)
+	for _, p := range pkgs {
+		for i, f := range p.files { // file
+			if p.path == modulePath && p.names[i] == "bits.go" {
+				continue
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr) // callExpr
+				if !ok || len(call.Args) != 1 || !narrowsToInt(p.info, call) {
+					return true
+				}
+				t.Errorf("rule 7: unchecked conversion to int at %s; use intFromU32 or intFromI64", fset.Position(call.Pos()))
+				return true
+			})
+		}
+	}
+}
+
+// narrowsToInt reports whether call is int(x) for a non-constant x whose
+// type may not fit a 32-bit int, other than x & C or x % C with a small C.
+func narrowsToInt(info *types.Info, call *ast.CallExpr) bool { // callExpr
+	fn, ok := info.Types[call.Fun] // conversionType
+	if !ok || !fn.IsType() || !types.Identical(fn.Type, types.Typ[types.Int]) {
+		return false
+	}
+	arg := info.Types[call.Args[0]] // argument
+	if arg.Type == nil || arg.Value != nil {
+		return false
+	}
+	b, isBasic := arg.Type.Underlying().(*types.Basic)
+	if !isBasic {
+		return false
+	}
+	switch b.Kind() {
+	case types.Uint32, types.Uint64, types.Int64, types.Uint, types.Uintptr:
+	default:
+		return false
+	}
+	return !smallByOperator(info, call.Args[0])
+}
+
+// smallByOperator reports whether e is x & C or x % C for a constant C in
+// [0, MaxInt32], whose result therefore fits any int.
+func smallByOperator(info *types.Info, e ast.Expr) bool { // expr
+	for paren, ok := e.(*ast.ParenExpr); ok; paren, ok = e.(*ast.ParenExpr) {
+		e = paren.X
+	}
+	bin, ok := e.(*ast.BinaryExpr) // binaryExpr
+	if !ok || (bin.Op != token.AND && bin.Op != token.REM) {
+		return false
+	}
+	c := info.Types[bin.Y].Value // operand
+	if c == nil {
+		return false
+	}
+	v, exact := constant.Int64Val(constant.ToInt(c))
+	return exact && v >= 0 && v <= math.MaxInt32
 }
 
 // TestRule8BuildTagsAndImports allows one build tag and forbids the

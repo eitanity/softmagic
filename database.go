@@ -185,7 +185,7 @@ func (db *Database) ruleID(rec int32) RuleID {
 	if rec < 0 || int(rec) >= len(db.recs) {
 		return RuleID{}
 	}
-	return RuleID{File: db.files[db.meta[rec].file], Line: int(db.recs[rec].lineno)}
+	return RuleID{File: db.files[db.meta[rec].file], Line: intFromU32(db.recs[rec].lineno)}
 }
 
 // Hash is the SHA-256 of the Magdir source the database was compiled from,

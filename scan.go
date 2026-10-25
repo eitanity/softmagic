@@ -518,7 +518,7 @@ func (s *scan) oob(n int, o int64, i int) bool { // readLength
 		s.oobHit = true
 		return true
 	}
-	s.noteRead(int(o) + i)
+	s.noteRead(intFromI64(o) + i)
 	return false
 }
 
