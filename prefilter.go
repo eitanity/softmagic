@@ -6,7 +6,7 @@ package softmagic
 import (
 	"encoding/binary"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // A prefilter is the literal bytes an entry's first line must

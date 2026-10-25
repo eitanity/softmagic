@@ -1,4 +1,4 @@
-module github.com/eitanity/softmagic
+module code.eitanity.com/softmagic
 
 go 1.26.0
 

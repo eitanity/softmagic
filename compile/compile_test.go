@@ -8,8 +8,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/eitanity/softmagic"
-	"github.com/eitanity/softmagic/compile"
+	"code.eitanity.com/softmagic"
+	"code.eitanity.com/softmagic/compile"
 )
 
 // TestMatchesEmbedded checks that compiling the vendored Magdir through

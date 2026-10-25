@@ -12,7 +12,7 @@ package softmagic
 import (
 	"strings"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // lineParser holds the cursor over one rule line and the record being built.

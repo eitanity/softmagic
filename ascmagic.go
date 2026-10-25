@@ -7,7 +7,7 @@
 
 package softmagic
 
-import "github.com/eitanity/softmagic/internal/invariant"
+import "code.eitanity.com/softmagic/internal/invariant"
 
 // textStats is what the line scan of the text phase establishes.
 type textStats struct {

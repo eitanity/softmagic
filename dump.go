@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // DumpSources is file -c over rule sources: each rule line in the order

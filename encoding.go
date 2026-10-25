@@ -9,7 +9,7 @@
 
 package softmagic
 
-import "github.com/eitanity/softmagic/internal/invariant"
+import "code.eitanity.com/softmagic/internal/invariant"
 
 // encodingKind names how the text window decodes.
 type encodingKind uint8

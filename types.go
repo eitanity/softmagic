@@ -6,7 +6,7 @@
 
 package softmagic
 
-import "github.com/eitanity/softmagic/internal/invariant"
+import "code.eitanity.com/softmagic/internal/invariant"
 
 // fileType is libmagic's FILE_* test type code. The numeric values are part
 // of the entry sort: its tie-break compares them as bytes.

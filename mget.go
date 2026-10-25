@@ -12,7 +12,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // setOffset is msetoffset: establish ms->offset for the line. It returns

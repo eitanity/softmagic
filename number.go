@@ -6,7 +6,7 @@ package softmagic
 import (
 	"math"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // This file reimplements the C library number parsers the reference relies

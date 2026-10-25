@@ -6,7 +6,7 @@
 
 package softmagic
 
-import "github.com/eitanity/softmagic/internal/invariant"
+import "code.eitanity.com/softmagic/internal/invariant"
 
 // Character classes of text_chars.
 const (

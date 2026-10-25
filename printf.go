@@ -7,7 +7,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // This file is the printf subset the magic descriptions use, with C's

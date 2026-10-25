@@ -104,7 +104,7 @@ These are `file`'s limits, with its defaults, and two of the library's own. `Opt
 
 `go.mod` requires the linters and vulnerability scanner that `make lint` runs, as `tool`
 dependencies. None of them is linked into the library or a program that uses it: `go version -m`
-on such a binary lists `github.com/eitanity/softmagic` as its only dependency. They do appear in
+on such a binary lists `code.eitanity.com/softmagic` as its only dependency. They do appear in
 a consumer's module graph (`go list -m all`).
 
 ## How the code is checked

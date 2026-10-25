@@ -10,7 +10,7 @@ package softmagic
 import (
 	"encoding/binary"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // builtinResult is what a detector established: nothing, or a description

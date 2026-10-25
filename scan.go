@@ -8,7 +8,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // Limits. The reference's are named beside each. A limit that fires is

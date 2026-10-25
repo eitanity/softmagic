@@ -51,7 +51,7 @@ linters:
           list-mode: strict
           allow:
             - $gostd
-            - github.com/eitanity/softmagic
+            - code.eitanity.com/softmagic
           deny:
             - pkg: unsafe
               desc: "unsafe is not used (Power of Ten rule 8)"

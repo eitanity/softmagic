@@ -8,7 +8,7 @@
 
 package softmagic
 
-import "github.com/eitanity/softmagic/internal/invariant"
+import "code.eitanity.com/softmagic/internal/invariant"
 
 // jsonMaxDepth is the reference's level limit of 500 in container depth:
 // its level counter advances twice per container.

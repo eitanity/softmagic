@@ -10,7 +10,7 @@ import (
 	"encoding/binary"
 	"strconv"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // The compiled form: the library's own serialisation of a

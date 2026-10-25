@@ -14,7 +14,7 @@ package softmagic
 import (
 	"strings"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // runResult is one file_buffer run: its answers, or, when a hard limit

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // CompileOptions configures Compile. The zero value is the default.

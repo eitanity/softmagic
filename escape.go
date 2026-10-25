@@ -6,7 +6,7 @@ package softmagic
 import (
 	"unicode/utf8"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // printRange is a run of code points glibc's iswprint accepts in a UTF-8

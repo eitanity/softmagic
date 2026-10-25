@@ -6,7 +6,7 @@
 
 package softmagic
 
-import "github.com/eitanity/softmagic/internal/invariant"
+import "code.eitanity.com/softmagic/internal/invariant"
 
 // getStr decodes the C character escapes of the value at the cursor into
 // rec.value, stopping at an unescaped space or tab, and sets rec.vallen.

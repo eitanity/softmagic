@@ -11,7 +11,7 @@ package softmagic
 import (
 	"strconv"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 const derBad = 0xffffffff

@@ -11,7 +11,7 @@
 package softmagic
 
 import (
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 
 	"encoding/binary"
 	"strconv"

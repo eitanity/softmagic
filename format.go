@@ -6,7 +6,7 @@
 
 package softmagic
 
-import "github.com/eitanity/softmagic/internal/invariant"
+import "code.eitanity.com/softmagic/internal/invariant"
 
 // checkFormat verifies that the description's one printf conversion, if
 // any, is valid for the record's type.

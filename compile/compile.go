@@ -9,8 +9,8 @@
 package compile
 
 import (
-	"github.com/eitanity/softmagic"
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic"
+	"code.eitanity.com/softmagic/internal/invariant"
 
 	"crypto/sha256"
 	"encoding/hex"

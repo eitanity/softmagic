@@ -16,7 +16,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // Limits: the reference's defaults from file.h, the defaults of

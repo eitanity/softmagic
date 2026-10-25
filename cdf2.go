@@ -11,7 +11,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // detectCDF is file_trycdf, run once for the description and once for the

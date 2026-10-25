@@ -11,7 +11,7 @@ package softmagic
 import (
 	"encoding/binary"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // Sizes from file.h.

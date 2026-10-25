@@ -19,7 +19,7 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/eitanity/softmagic"
+const modulePath = "code.eitanity.com/softmagic"
 
 // pkg is one parsed and type-checked package of the module.
 type pkg struct {

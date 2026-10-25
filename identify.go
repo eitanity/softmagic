@@ -14,7 +14,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/eitanity/softmagic/internal/invariant"
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // Identify returns what file(1) would print for data, with the default
