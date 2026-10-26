@@ -13,6 +13,8 @@ package softmagic
 
 import (
 	"encoding/binary"
+	"errors"
+	"io"
 	"math"
 	"strconv"
 
@@ -615,7 +617,12 @@ func (s *scan) readAt(off int64, n int) ([]byte, bool) { // length
 	if !ok {
 		return nil, false
 	}
-	if _, err := s.src.ReadAt(buf, off); err != nil {
+	// The pooled buffer is zeroed first, so a reader that claims more
+	// than it wrote yields zeros, never an earlier read's bytes. Any count
+	// but n is a failed read; io.EOF with all n bytes is a whole read.
+	clear(buf)
+	got, err := s.src.ReadAt(buf, off)
+	if got != n || err != nil && !errors.Is(err, io.EOF) {
 		return nil, false
 	}
 	return buf, true

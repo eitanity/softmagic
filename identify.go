@@ -55,10 +55,17 @@ func (db *Database) IdentifyAt(ctx context.Context, r io.ReaderAt, size int64, o
 	if cap(s.inbuf) < want {
 		s.inbuf = make([]byte, n)
 	}
-	got, err := r.ReadAt(s.inbuf[:n], 0)
+	// The pooled buffer is zeroed first, so a reader that claims more
+	// than it wrote yields zeros, never an earlier call's input.
+	clear(s.inbuf[:want])
+	got, err := r.ReadAt(s.inbuf[:want], 0)
 	switch {
-	case err == nil || got >= want:
-	case errors.Is(err, io.EOF):
+	case got < 0 || got > want:
+		// Outside the io.ReaderAt contract: the count describes no bytes.
+		db.pool.put(s)
+		return invariantResult(o)
+	case got == want:
+	case err == nil || errors.Is(err, io.EOF):
 		// The input is shorter than size said (a file cut short after its
 		// stat): the reference's read returns the bytes there are, and it
 		// identifies those.
