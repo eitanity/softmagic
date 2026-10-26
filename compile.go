@@ -102,16 +102,16 @@ func (c *compiler) loadFile(name string, data []byte) error {
 	}
 	file := c.sourceDir + "/" + name
 	lineno := uint32(0)
-	var end int
-	for start := 0; start < len(data); start = end + 1 {
-		end = start
-		for ; end < len(data) && data[end] != '\n'; end++ {
+	var n int // lineLength
+	for start := 0; start < len(data); start += n + 1 {
+		rest := data[start:] // remaining
+		for n = 0; n < len(rest) && rest[n] != '\n'; n++ {
 		}
-		line := data[start:end]
+		line := rest[:n]
 		if nul := indexByteFrom(line, 0, 0); nul >= 0 {
 			line = line[:nul] // the reference parses a C string: a NUL ends the line
 		}
-		if end < len(data) {
+		if n < len(rest) {
 			lineno++
 		}
 		if len(line) == 0 || line[0] == '#' {

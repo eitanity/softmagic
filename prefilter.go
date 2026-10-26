@@ -108,7 +108,7 @@ func (db *Database) buildPrefilters() {
 		for s := 0; s < 2; s++ {
 			for _, e := range db.maps[i].sets[s] {
 				db.pre[e.first].skip = skipMask(&db.recs[e.first])
-				for k := e.first; k < e.first+e.count; k++ {
+				for k := int(e.first); k < len(db.entryEnd) && k < int(e.first+e.count); k++ {
 					db.entryEnd[k] = e.first + e.count
 				}
 			}

@@ -287,7 +287,8 @@ func (e *elfState) phdrExec(off int64, num, size int, haveSections bool) {
 		return
 	}
 	st := phdrState{} // phdrWalk
-	for ; num > 0; num-- {
+	// run caps num at the ELF limits, which are at most limit16Max.
+	for num = min(num, limit16Max); num > 0; num-- {
 		hb, ok := e.s.readAt(off, size)
 		if !ok {
 			e.printf(", can't read elf program headers at " + strconv.FormatInt(off, 10))
@@ -392,7 +393,7 @@ func (e *elfState) dynamic(data []byte, pie bool, need int) (bool, int) {
 	if e.class == elfClass64 {
 		size = 16
 	}
-	for off := 0; off <= len(data)-size; off += size {
+	for off := 0; off < len(data) && off <= len(data)-size; off += size {
 		tag, val := e.word(data[off:]), e.word(data[off+size/2:])
 		switch tag {
 		case dtFlags1:
@@ -416,7 +417,8 @@ func (e *elfState) phdrCore(off int64, num, size int) {
 		e.printf(", corrupted program header size")
 		return
 	}
-	for ; num > 0; num-- {
+	// run caps num at the ELF limits, which are at most limit16Max.
+	for num = min(num, limit16Max); num > 0; num-- {
 		hb, ok := e.s.readAt(off, size) // readOK
 		if !ok {
 			e.printf(", can't read elf program headers at " + strconv.FormatInt(off, 10))
@@ -492,7 +494,8 @@ func (e *elfState) shdr(off int64, num, size, strtab int) {
 		return
 	}
 	st := shdrState{stripped: true} // shdrWalk
-	for ; num > 0; num-- {
+	// run caps num at the ELF limits, which are at most limit16Max.
+	for num = min(num, limit16Max); num > 0; num-- {
 		if !e.oneSection(&st, off, size, nameOff) {
 			return
 		}

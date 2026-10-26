@@ -396,10 +396,10 @@ func (p *lineParser) parseStringModifier() error {
 	r := p.rec // rec
 	haveRange := false
 	p.i++
-	var next int
-	for ; p.i < len(p.line) && !cIsSpace(p.line[p.i]); p.i = next {
+	// Each pass advances p.i by at least one byte.
+	for k := 0; k < len(p.line) && p.i < len(p.line) && !cIsSpace(p.line[p.i]); k++ {
 		c := p.line[p.i] // modChar
-		next = p.i + 1
+		next := p.i + 1
 		if cIsDigit(c) {
 			if haveRange {
 				return p.errorf("multiple ranges")
@@ -414,7 +414,7 @@ func (p *lineParser) parseStringModifier() error {
 		} else if !applyModifier(r, c) {
 			return p.errorf("string modifier `" + string(c) + "' invalid")
 		}
-		next = modifierSlash(p.line, next)
+		p.i = modifierSlash(p.line, next)
 	}
 	if p.i >= len(p.line) {
 		// The reference reads the terminating NUL as a modifier and rejects it.

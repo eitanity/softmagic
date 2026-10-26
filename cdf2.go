@@ -385,7 +385,8 @@ func unpackCatalog(st *cdfStream) ([]string, bool) {
 	// many there can be by the catalog's size rather than its count.
 	names := make([]string, 0, min(nr, len(tab)/14))
 	b := 0 // recordOff
-	for i := 0; i < nr && b <= len(tab)-16; i++ {
+	// catalogRecords counts at most len(tab)+1 records, and one is dropped.
+	for i := 0; i < len(tab) && i < nr && b <= len(tab)-16; i++ {
 		reclen := int(binary.LittleEndian.Uint16(tab[b:]))
 		if reclen < 14 {
 			b += reclen
@@ -430,7 +431,7 @@ func catalogName(b []byte, n int) string {
 	}
 	var name [255]byte
 	k := 0 // nameIdx
-	for ; k < n; k++ {
+	for ; k < len(name) && k < n; k++ {
 		u := binary.LittleEndian.Uint16(b[2*k:])
 		if u == 0 {
 			break

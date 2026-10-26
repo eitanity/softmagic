@@ -245,8 +245,9 @@ func (e *elfState) netbsdVersion(desc uint32) {
 	case rel == 0 && patch != 0:
 		e.printf("." + strconv.FormatUint(uint64(patch), 10))
 	case rel != 0:
-		for ; rel > 26; rel -= 26 {
+		for k := 0; k < 4 && rel > 26; k++ { // rel is below 100
 			e.printf("Z")
+			rel -= 26
 		}
 		e.s.writeByte('A' + low8(uint64(rel)) - 1)
 	}
@@ -462,7 +463,9 @@ func (e *elfState) svr4Core(n *elfNote, data []byte, doff int) bool { // note
 		end := start
 		for ; end < len(data) && data[end] != 0 && cIsPrint(data[end]); end++ {
 		}
-		for ; end > start && cIsSpace(data[end-1]); end-- {
+		// end falls from at most len(data).
+		for k := 0; k < len(data) && end > start && cIsSpace(data[end-1]); k++ {
+			end--
 		}
 		e.printf(", from '" + e.s.fileText(copyStr(data[start:end], 255)) + "'")
 		e.flags |= elfDidCore
@@ -504,9 +507,10 @@ func adjustPrps(data []byte, doff int, offs []int, i, j int) int { // offsetInde
 		if offs[k] >= offs[i] || (offs[k] == offs[i]-16 && j == 16) {
 			continue
 		}
-		adjust := true
-		for no := doff + offs[k]; no < doff+offs[i]; no++ {
-			adjust = adjust && no < len(data) && cIsPrint(data[no])
+		// offs[k] < offs[i], so the run is not empty: it must end within data.
+		adjust := doff+offs[i] <= len(data)
+		for no := doff + offs[k]; no < len(data) && no < doff+offs[i]; no++ {
+			adjust = adjust && cIsPrint(data[no])
 		}
 		if adjust {
 			i = k
@@ -527,7 +531,7 @@ func (e *elfState) auxvNote(n *elfNote) bool { // note
 		elsize = 16
 	}
 	nval := 0
-	for off := 0; off <= len(n.desc)-elsize; off += elsize {
+	for off := 0; off < len(n.desc) && off <= len(n.desc)-elsize; off += elsize {
 		nval++
 		if nval > 50 {
 			return true
@@ -557,7 +561,8 @@ func (e *elfState) stringAt(virtaddr uint64) (string, bool) {
 	}
 	off := e.phOff
 	size := e.phdrSize()
-	for n := e.phNum; n > 0; n-- {
+	// run caps phNum at the ELF limits, which are at most limit16Max.
+	for n := min(e.phNum, limit16Max); n > 0; n-- {
 		hb, ok := e.s.readAt(off, size)
 		if !ok {
 			e.printf(", can't read elf program header at " + strconv.FormatInt(off, 10))
@@ -626,7 +631,7 @@ func (e *elfState) capSection(st *shdrState, sh *elfShdr) bool { // sectionState
 		size = 16
 	}
 	limit := clampInt(sh.size, elfShsizeMax)
-	for coff := size; coff <= limit; coff += size {
+	for coff := size; coff <= elfShsizeMax && coff <= limit; coff += size {
 		cb, ok := e.s.readAt(offInt(sh.offset)+int64(coff-size), size) // capEntry
 		if !ok {
 			return false

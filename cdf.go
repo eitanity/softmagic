@@ -34,6 +34,7 @@ const (
 	cdfPropLimit    = 0xffffffff / (64 * 24)
 	cdfSectionDecl  = 0x1c
 	cdfMaxDirs      = 1 << 20
+	cdfSecSizeP2Max = 20 // the largest sector size, as a power of two, a header may declare
 	// cdfChainLimit is the most bytes one sector chain is read into: the
 	// loop limit's worth of 4096-byte sectors, the larger of the format's
 	// two sector sizes. Only a header with a nonstandard sector size can
@@ -184,7 +185,7 @@ func cdfReadHeader(buf []byte) (cdfHeader, bool) {
 	for i := range h.masterSAT {
 		h.masterSAT[i] = wrapInt32(int64(le.Uint32(buf[76+4*i:])))
 	}
-	if h.secSizeP2 > 20 || h.shortSecSizeP2 > 20 {
+	if h.secSizeP2 > cdfSecSizeP2Max || h.shortSecSizeP2 > cdfSecSizeP2Max {
 		return h, false
 	}
 	return h, true
@@ -210,7 +211,8 @@ func (c *cdfFile) readSAT() bool {
 		return false
 	}
 	mid := h.firstMasterSAT
-	for j := 0; j < intFromU32(h.numMasterSAT); j++ {
+	nmaster := min(intFromU32(h.numMasterSAT), cdfLoopLimit+1) // the body returns at the loop limit
+	for j := 0; j < nmaster; j++ {
 		if mid < 0 {
 			c.sat = c.sat[:i*ss]
 			return true
@@ -298,7 +300,8 @@ func (c *cdfFile) readMasterSector(msa []byte, i, nsatpersec, satLen int) (int, 
 		return 0, false
 	}
 	ss := c.h.secSize() // sectorSize
-	for k := 0; k < nsatpersec; k++ {
+	// nsatpersec is ss/4-1, and the header caps ss.
+	for k := 0; k < (1<<cdfSecSizeP2Max)/4 && k < nsatpersec; k++ {
 		sec := secidAt(msa, int64(k))
 		if sec < 0 {
 			c.sat = c.sat[:i*ss]
@@ -486,7 +489,8 @@ func (c *cdfFile) readDir() bool {
 		c.s.cdfdir = make([]cdfDir, ns*nd)
 	}
 	c.dir = c.s.cdfdir[:ns*nd]
-	for i := 0; i < ns; i++ { // sectorIndex
+	// The body returns at the loop limit.
+	for i := 0; i <= cdfLoopLimit && i < ns; i++ { // sectorIndex
 		if i >= cdfLoopLimit {
 			return false
 		}
@@ -494,7 +498,7 @@ func (c *cdfFile) readDir() bool {
 		if !ok {
 			return false
 		}
-		for j := 0; j < nd; j++ {
+		for j := 0; j < len(c.dir) && j < nd; j++ {
 			c.dir[i*nd+j] = unpackDir(sec[j*cdfDirectorySz:])
 		}
 		sid = secidAt(c.sat, int64(sid))
@@ -648,7 +652,7 @@ func readPropertyInfo(st *cdfStream, offs uint32) ([]cdfProp, bool) { // stream
 	}
 	props := st.props[:0]
 	pr := propReader{st: st, p: p, e: e, n: count}
-	for i := 0; i < count; i++ {
+	for i := 0; i < cdfElementLimit && i < count; i++ {
 		var ok bool
 		props, i, ok = pr.one(props, i)
 		if !ok {
@@ -728,12 +732,12 @@ func (pr *propReader) copyInfo(pos, n int, prop *cdfProp) uint64 {
 
 // strings reads a string property, or the elements of a string vector.
 func (pr *propReader) strings(props []cdfProp, prop cdfProp, i, q, nelements, slen int) ([]cdfProp, int, bool) { // valueOffset
-	if !invariant.Check(nelements > 0 && slen >= 1, "string element count and length words") {
+	if !invariant.Check(nelements > 0 && nelements <= cdfElementLimit && slen >= 1, "string element count and length words") {
 		return nil, i, false
 	}
 	left := pr.e - q
 	o4 := slen * 4 // elementOffset
-	for j := 0; j < nelements && i < pr.n; j++ {
+	for j := 0; j < cdfElementLimit && j < nelements && i < pr.n; j++ {
 		if o4+4 > left {
 			return nil, i, false
 		}
@@ -1009,7 +1013,7 @@ func cdfDays(year int) int {
 		return 0
 	}
 	days := 0
-	for y := cdfBaseYear; y < year; y++ {
+	for y := cdfBaseYear; y <= 9999 && y < year; y++ {
 		days += 365
 		if isLeap(y) {
 			days++

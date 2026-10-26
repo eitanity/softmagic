@@ -395,7 +395,8 @@ func (d *textDecoder) nextUTF8() (uint32, bool) {
 		return 0, false
 	}
 	c := uint32(b) & (0x3f >> uint(following)) // codePoint
-	for n := 0; n < following; n++ {
+	// utf8Following counts at most five.
+	for n := 0; n < 5 && n < following; n++ {
 		if d.i >= len(d.buf) {
 			return 0, false
 		}

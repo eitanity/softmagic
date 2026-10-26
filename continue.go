@@ -368,7 +368,7 @@ func (s *scan) answers() []string {
 	}
 	out := make([]string, 0, s.nseps+1)
 	start := 0
-	for i := range s.nseps {
+	for i := range min(s.nseps, len(s.seps)) {
 		p := int(s.seps[i])
 		out = append(out, string(s.out[start:p]))
 		start = p + len(sepText)

@@ -299,20 +299,30 @@ func TestRule1NoGotoDeferRecover(t *testing.T) {
 	}
 }
 
-// TestRule2LoopForms accepts only `for range` and three-clause loops whose
-// condition's first conjunct compares the counter against a bound and whose
-// post statement steps the counter.
+// TestRule2LoopForms accepts a loop only when a tool can see its bound:
+// `for range` over a slice, array, string or map, or over an integer that
+// is a fixed bound; or a three-clause loop whose post statement steps the
+// counter by ++, --, += or -=, with a conjunct of its condition comparing
+// the counter against a fixed bound (from below for a counter that
+// rises, from above for one that falls from a fixed start). A fixed bound
+// is a constant, a len or cap, or a local assigned once from those (also
+// through +, -, *, /, >>, min and conversions). Every slice the module
+// loops over is capped by a limit before the loop, so its length is.
 func TestRule2LoopForms(t *testing.T) {
 	fset, pkgs := loadModule(t)
 	for _, p := range pkgs {
 		for _, f := range p.files {
+			b := newBounds(p.info, f)
 			ast.Inspect(f, func(n ast.Node) bool {
-				fs, ok := n.(*ast.ForStmt)
-				if !ok {
-					return true
-				}
-				if why := loopForm(fs); why != "" {
-					t.Errorf("rule 2: %s at %s", why, fset.Position(fs.Pos()))
+				switch s := n.(type) { // loopStmt
+				case *ast.ForStmt:
+					if why := b.loopForm(s); why != "" {
+						t.Errorf("rule 2: %s at %s", why, fset.Position(s.Pos()))
+					}
+				case *ast.RangeStmt:
+					if b.isInteger(s.X) && !b.fixed(s.X, 0) {
+						t.Errorf("rule 2: range over %s, which is not a fixed bound, at %s", types.ExprString(s.X), fset.Position(s.Pos()))
+					}
 				}
 				return true
 			})
@@ -320,65 +330,186 @@ func TestRule2LoopForms(t *testing.T) {
 	}
 }
 
-// loopForm returns "" when fs is an accepted three-clause loop.
-func loopForm(fs *ast.ForStmt) string { // forStmt
-	if fs.Cond == nil {
-		return "loop without condition"
-	}
-	if fs.Post == nil {
-		return "loop without post statement"
-	}
-	cond := fs.Cond
-	for {
-		b, ok := cond.(*ast.BinaryExpr)
-		if ok && b.Op == token.LAND {
-			cond = b.X
-			continue
-		}
-		break
-	}
-	cmp, ok := cond.(*ast.BinaryExpr)
-	if !ok || (cmp.Op != token.LSS && cmp.Op != token.LEQ && cmp.Op != token.GTR && cmp.Op != token.GEQ) {
-		return "loop condition's first conjunct is not a counter comparison"
-	}
-	counter := types.ExprString(cmp.X)
-	switch cmp.X.(type) {
-	case *ast.Ident, *ast.SelectorExpr:
-	default:
-		return "loop counter is not an identifier or field"
-	}
-	if !stepsCounter(fs.Post, counter) {
-		return "loop post statement does not step the counter " + counter
-	}
-	if mentions(cmp.Y, counter) {
-		return "loop bound mentions the counter"
-	}
-	return ""
+// bounds knows which locals of one file are assigned once, and from what.
+type bounds struct {
+	info   *types.Info
+	defs   map[types.Object]ast.Expr // the defining expression, nil when there is none
+	writes map[types.Object]int      // assignments after the definition, and address-taking
 }
 
-func stepsCounter(post ast.Stmt, counter string) bool {
-	switch s := post.(type) { // stmt
-	case *ast.IncDecStmt:
-		return types.ExprString(s.X) == counter
-	case *ast.AssignStmt:
-		if len(s.Lhs) != 1 || (s.Tok != token.ADD_ASSIGN && s.Tok != token.SUB_ASSIGN && s.Tok != token.ASSIGN) {
-			return false
+// maxBoundDepth limits how far fixed follows definitions and operands.
+const maxBoundDepth = 8
+
+func newBounds(info *types.Info, f *ast.File) *bounds { // file
+	b := &bounds{info: info, defs: map[types.Object]ast.Expr{}, writes: map[types.Object]int{}}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch s := n.(type) { // stmt
+		case *ast.AssignStmt:
+			b.noteAssign(s)
+		case *ast.ValueSpec:
+			for i, id := range s.Names {
+				if obj := info.Defs[id]; obj != nil {
+					b.defs[obj] = nil
+					if i < len(s.Values) {
+						b.defs[obj] = s.Values[i]
+					}
+				}
+			}
+		case *ast.IncDecStmt:
+			b.noteWrite(s.X)
+		case *ast.UnaryExpr:
+			if s.Op == token.AND {
+				b.noteWrite(s.X)
+			}
 		}
-		return types.ExprString(s.Lhs[0]) == counter
-	default:
+		return true
+	})
+	return b
+}
+
+func (b *bounds) noteAssign(s *ast.AssignStmt) {
+	for i, l := range s.Lhs {
+		id, ok := l.(*ast.Ident) // lhs
+		if ok && s.Tok == token.DEFINE {
+			if obj := b.info.Defs[id]; obj != nil {
+				b.defs[obj] = nil
+				if len(s.Rhs) == len(s.Lhs) {
+					b.defs[obj] = s.Rhs[i]
+				}
+				continue
+			}
+		}
+		b.noteWrite(l)
+	}
+}
+
+func (b *bounds) noteWrite(e ast.Expr) {
+	if id, ok := e.(*ast.Ident); ok {
+		if obj := b.info.Uses[id]; obj != nil {
+			b.writes[obj]++
+		}
+	}
+}
+
+func (b *bounds) isInteger(e ast.Expr) bool {
+	tv := b.info.Types[e] // typeAndValue
+	if tv.Type == nil {
 		return false
 	}
+	basic, ok := tv.Type.Underlying().(*types.Basic)
+	return ok && basic.Info()&types.IsInteger != 0
 }
 
-func mentions(e ast.Expr, counter string) bool {
-	found := false
-	ast.Inspect(e, func(n ast.Node) bool {
-		if x, ok := n.(ast.Expr); ok && types.ExprString(x) == counter {
-			found = true
+// fixed reports whether e is a fixed bound.
+func (b *bounds) fixed(e ast.Expr, depth int) bool { // expr
+	if depth > maxBoundDepth {
+		return false
+	}
+	if tv, ok := b.info.Types[e]; ok && tv.Value != nil {
+		return true
+	}
+	switch x := e.(type) {
+	case *ast.ParenExpr:
+		return b.fixed(x.X, depth+1)
+	case *ast.CallExpr:
+		return b.fixedCall(x, depth)
+	case *ast.BinaryExpr:
+		switch x.Op {
+		case token.ADD, token.SUB, token.MUL, token.QUO, token.SHR:
+			return b.fixed(x.X, depth+1) && b.fixed(x.Y, depth+1)
+		default:
+			return false
 		}
-		return !found
-	})
-	return found
+	case *ast.Ident:
+		obj := b.info.Uses[x]
+		d, defined := b.defs[obj]
+		return obj != nil && defined && d != nil && b.writes[obj] == 0 && b.fixed(d, depth+1)
+	}
+	return false
+}
+
+// fixedCall accepts len, cap, a min with a fixed argument, and a
+// conversion of a fixed bound.
+func (b *bounds) fixedCall(x *ast.CallExpr, depth int) bool { // call
+	if id, ok := x.Fun.(*ast.Ident); ok && b.info.Uses[id] != nil && b.info.Uses[id].Parent() == types.Universe {
+		switch id.Name {
+		case "len", "cap":
+			return true
+		case "min":
+			for _, a := range x.Args {
+				if b.fixed(a, depth+1) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	tv := b.info.Types[x.Fun] // conversionType
+	return tv.IsType() && len(x.Args) == 1 && b.fixed(x.Args[0], depth+1)
+}
+
+// loopForm returns "" when fs is an accepted three-clause loop.
+func (b *bounds) loopForm(fs *ast.ForStmt) string { // forStmt
+	if fs.Cond == nil || fs.Post == nil {
+		return "loop without a condition and a post statement"
+	}
+	counter, rising, why := stepOf(fs.Post)
+	if why != "" {
+		return why
+	}
+	if !rising && !b.fixedStart(fs.Init, counter) {
+		return "falling counter " + counter + " has no fixed start in the loop's init"
+	}
+	for _, c := range conjuncts(fs.Cond) {
+		cmp, ok := c.(*ast.BinaryExpr) // comparison
+		if !ok {
+			continue
+		}
+		if rising && (cmp.Op == token.LSS || cmp.Op == token.LEQ) && types.ExprString(cmp.X) == counter && b.fixed(cmp.Y, 0) {
+			return ""
+		}
+		if !rising && (cmp.Op == token.GTR || cmp.Op == token.GEQ) && types.ExprString(cmp.X) == counter {
+			return ""
+		}
+	}
+	return "no conjunct of " + types.ExprString(fs.Cond) + " bounds " + counter + " by a fixed bound"
+}
+
+// stepOf names the counter a post statement steps and its direction.
+func stepOf(post ast.Stmt) (counter string, rising bool, why string) { // stmt
+	switch s := post.(type) {
+	case *ast.IncDecStmt:
+		return types.ExprString(s.X), s.Tok == token.INC, ""
+	case *ast.AssignStmt:
+		if len(s.Lhs) == 1 && (s.Tok == token.ADD_ASSIGN || s.Tok == token.SUB_ASSIGN) {
+			return types.ExprString(s.Lhs[0]), s.Tok == token.ADD_ASSIGN, ""
+		}
+	}
+	return "", false, "loop post statement is not ++, --, += or -= on a counter"
+}
+
+// fixedStart reports whether init sets counter from a fixed bound.
+func (b *bounds) fixedStart(init ast.Stmt, counter string) bool { // initStmt
+	s, ok := init.(*ast.AssignStmt) // assign
+	if !ok || len(s.Lhs) != 1 || len(s.Rhs) != 1 || types.ExprString(s.Lhs[0]) != counter {
+		return false
+	}
+	return b.fixed(s.Rhs[0], 0)
+}
+
+func conjuncts(e ast.Expr) []ast.Expr {
+	var out []ast.Expr
+	stack := []ast.Expr{e}
+	for steps := 0; steps < 64 && len(stack) > 0; steps++ {
+		top := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if x, ok := top.(*ast.BinaryExpr); ok && x.Op == token.LAND {
+			stack = append(stack, x.Y, x.X)
+			continue
+		}
+		out = append(out, top)
+	}
+	return out
 }
 
 // TestRule5AssertionDensity requires an average of two checks per function

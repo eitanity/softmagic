@@ -81,7 +81,8 @@ func derLength(c []byte, p *int) uint32 { // content
 		return uint32(digits)
 	}
 	n := uint64(0) // length
-	for i := 0; i < digits; i++ {
+	// digits is seven bits.
+	for i := 0; i < 0x80 && i < digits; i++ {
 		n = n<<8 | uint64(c[*p])
 		*p++
 	}

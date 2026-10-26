@@ -282,7 +282,7 @@ func (p *jsonParser) parseConst(word string) bool {
 	if end > len(p.uc) {
 		end = len(p.uc)
 	}
-	for k := 1; k < end-p.i; k++ {
+	for k := 1; k < len(word) && k < end-p.i; k++ {
 		if p.uc[p.i+k] != word[k] {
 			p.i = end
 			return false

@@ -216,8 +216,8 @@ func valueNeed(h *recordHead) int { // head
 
 // trimNul is a fixed array's content: everything before the NUL padding.
 func trimNul(a []byte) []byte {
-	n := len(a)
-	for ; n > 0 && a[n-1] == 0; n-- {
+	var n int
+	for n = len(a); n > 0 && a[n-1] == 0; n-- {
 	}
 	return a[:n]
 }

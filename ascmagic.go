@@ -19,8 +19,8 @@ type textStats struct {
 
 // trimNuls is ascmagic.c's trim_nuls: drop trailing NULs, keeping one byte.
 func trimNuls(buf []byte) int {
-	n := len(buf)
-	for ; n > 1 && buf[n-1] == 0; n-- {
+	var n int
+	for n = len(buf); n > 1 && buf[n-1] == 0; n-- {
 	}
 	if !invariant.Check(n <= len(buf) && (n >= 1 || len(buf) == 0), "trim keeps at least one byte") {
 		return 0

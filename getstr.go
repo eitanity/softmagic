@@ -17,26 +17,26 @@ func (p *lineParser) getStr() error {
 		return p.errorf("string value past the end of the line")
 	}
 	s, i, n := p.line, p.i, 0 // valueLength
-	var next int
-	for ; i < len(s) && !cIsSpace(s[i]); i = next {
+	// Each pass advances i by at least one byte.
+	for k := 0; k < len(s) && i < len(s) && !cIsSpace(s[i]); k++ {
 		if !invariant.Check(n <= maxString, "value fits MAXstring") || n >= maxString-1 {
 			return p.errorf("string too long: `" + string(s[p.i:]) + "'")
 		}
 		c := s[i]
-		next = i + 1
 		if c != '\\' {
 			p.rec.value[n] = c
 			n++
+			i++
 			continue
 		}
-		if next >= len(s) {
-			next = len(s) // incomplete escape: the reference warns and stops at the end
+		if i+1 >= len(s) {
+			i = len(s) // incomplete escape: the reference warns and stops at the end
 			continue
 		}
-		b, after := decodeEscape(s, next)
+		b, after := decodeEscape(s, i+1)
 		p.rec.value[n] = b
 		n++
-		next = after
+		i = after
 	}
 	p.i = i
 	p.rec.value[n] = 0

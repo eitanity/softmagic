@@ -113,7 +113,7 @@ func escapeText(text string, valid bool) string {
 	}
 	for i, r := range text { // byteIndex, char
 		keep := iswprint(r)
-		for k := i; k < i+utf8.RuneLen(r); k++ {
+		for k := i; k < len(text) && k < i+utf8.RuneLen(r); k++ { // text is valid UTF-8
 			b = appendEscapedByte(b, text[k], keep)
 		}
 	}

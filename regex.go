@@ -184,15 +184,14 @@ func writeBracket(b *strings.Builder, pat string, i int) int { // builder
 		b.WriteString(`\]`)
 		j++
 	}
-	var next int
-	for ; j < len(pat) && pat[j] != ']'; j = next {
-		next = j + 1
+	// Each pass advances j by at least one byte.
+	for step := 0; step < len(pat) && j < len(pat) && pat[j] != ']'; step++ {
 		switch {
 		case pat[j] == '[' && at([]byte(pat), j+1) == ':':
 			k := strings.Index(pat[j+2:], ":]")
 			if k >= 0 {
 				b.WriteString(pat[j : j+2+k+2])
-				next = j + 2 + k + 2
+				j += 2 + k + 2
 				continue
 			}
 			b.WriteString(`\[`)
@@ -203,6 +202,7 @@ func writeBracket(b *strings.Builder, pat string, i int) int { // builder
 		default:
 			writeLiteral(b, pat[j])
 		}
+		j++
 	}
 	b.WriteByte(']')
 	return j
@@ -382,7 +382,7 @@ func classLiterals(re *syntax.Regexp) []string {
 		if lo <= 0 || hi >= 0x80 || len(set)+int(hi-lo)+1 > maxAlternateLiterals {
 			return nil
 		}
-		for r := lo; r <= hi; r++ {
+		for r := lo; r < 0x80 && r <= hi; r++ {
 			set = append(set, string(low8(uint64(r))))
 		}
 	}

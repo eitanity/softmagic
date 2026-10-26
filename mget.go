@@ -352,7 +352,8 @@ func regexLineLimit(region []byte, linecnt int) int {
 	end := len(region)
 	var last int
 	b := 0 // lineStart
-	for lines := linecnt; lines > 0 && b < end; lines-- {
+	// The caller caps linecnt at len(region)+1.
+	for lines := min(linecnt, len(region)+1); lines > 0 && b < end; lines-- {
 		nl := lineEndFrom(region, b) // lineEnd
 		if nl < 0 {
 			return end
@@ -893,7 +894,7 @@ func (s *scan) moveSeps(from, to, delta int) { // sepEnd
 		s.truncate(TruncInvariant)
 		return
 	}
-	for i := from; i < to; i++ {
+	for i := from; i < len(s.seps) && i < to; i++ {
 		s.seps[i] = smallInt32(int(s.seps[i]) + delta)
 	}
 	s.nseps = to
@@ -906,7 +907,7 @@ func (s *scan) dropSepsPast() {
 		s.nseps = 0 // a count that cannot index seps marks no separator
 		return
 	}
-	for range s.nseps {
+	for range min(s.nseps, len(s.seps)) {
 		if int(s.seps[s.nseps-1])+len(sepText) <= s.outLen {
 			return
 		}

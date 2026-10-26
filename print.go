@@ -192,8 +192,8 @@ func trimSpace(b []byte) []byte { // text
 	i := 0 // start
 	for ; i < len(b) && cIsSpace(b[i]); i++ {
 	}
-	j := len(b)
-	for ; j > i && cIsSpace(b[j-1]); j-- {
+	var j int
+	for j = len(b); j > i && cIsSpace(b[j-1]); j-- {
 	}
 	if !invariant.Check(i <= j && j <= len(b), "trim bounds ordered") {
 		return nil

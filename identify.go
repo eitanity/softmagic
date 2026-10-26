@@ -434,7 +434,7 @@ func (s *scan) ruleIDs() []RuleID {
 	}
 
 	out := make([]RuleID, s.nrules)
-	for i := 0; i < s.nrules; i++ {
+	for i := range out {
 		out[i] = s.db.ruleID(s.rules[i])
 	}
 	return out

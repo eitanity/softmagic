@@ -206,7 +206,7 @@ func varint(v []byte, le bool) uint64 { // littleEndian
 	}
 	var x uint64 // number
 	if !le {
-		for i := range n {
+		for i := range min(n, len(v)) {
 			x |= uint64(v[i] & 0x7f)
 			if v[i]&0x80 == 0 {
 				break
@@ -216,7 +216,7 @@ func varint(v []byte, le bool) uint64 { // littleEndian
 		return x
 	}
 	last := n
-	for i := range n {
+	for i := range min(n, len(v)) {
 		if v[i]&0x80 == 0 {
 			last = i
 			break
@@ -225,7 +225,7 @@ func varint(v []byte, le bool) uint64 { // littleEndian
 	if last == len(v) {
 		last--
 	}
-	for i := range last + 1 {
+	for i := range min(last+1, len(v)) {
 		x |= uint64(v[last-i] & 0x7f)
 		x <<= 7
 	}

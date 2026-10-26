@@ -6,6 +6,7 @@ package softmagic
 import (
 	"math"
 	"strconv"
+	"strings"
 
 	"code.eitanity.com/softmagic/internal/invariant"
 )
@@ -139,22 +140,21 @@ func formatInt(c convSpec, v uint64, bits int, _ bool) string { // spec
 // finishNumber applies precision, sign, alternate prefix and width to the
 // digit string as C's printf does.
 func finishNumber(c convSpec, digits string, neg bool, v uint64) string { // value
-	if !invariant.Check(c.verb != 's', "number conversion") {
+	if !invariant.Check(c.verb != 's', "number conversion") ||
+		!invariant.Check(c.width <= 1024 && c.prec <= 1024, "width and precision bounded by the compile-time format check") {
 		return ""
 	}
 	if c.hasPrec {
 		if c.prec == 0 && v == 0 {
 			digits = ""
 		}
-		for n := len(digits); n < c.prec; n++ {
-			digits = "0" + digits
+		if n := c.prec - len(digits); n > 0 {
+			digits = strings.Repeat("0", n) + digits
 		}
 	}
 	prefix, digits := numberPrefix(c, digits, neg, v)
-	if c.zero && !c.minus && !c.hasPrec {
-		for n := len(prefix) + len(digits); n < c.width; n++ {
-			digits = "0" + digits
-		}
+	if n := c.width - len(prefix) - len(digits); c.zero && !c.minus && !c.hasPrec && n > 0 {
+		digits = strings.Repeat("0", n) + digits
 	}
 	return padField(c, prefix+digits, false)
 }
@@ -193,12 +193,13 @@ func padField(c convSpec, s string, _ bool) string { // text
 		!invariant.Check(c.width >= 0, "width non-negative") {
 		return s // unpadded
 	}
-	for n := len(s); n < c.width; n++ {
-		if c.minus {
-			s += " "
-		} else {
-			s = " " + s
-		}
+	n := c.width - len(s) // padding
+	switch {
+	case n <= 0:
+	case c.minus:
+		s += strings.Repeat(" ", n)
+	default:
+		s = strings.Repeat(" ", n) + s
 	}
 	return s
 }
@@ -255,7 +256,7 @@ func (s *scan) spaces(n int) {
 		n = maxOutput
 		s.truncate(TruncOutput)
 	}
-	for k := 0; k < n; k++ {
+	for k := 0; k < maxOutput && k < n; k++ {
 		s.writeByte(' ')
 	}
 }

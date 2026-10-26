@@ -610,7 +610,7 @@ func (s *scan) abortWith(reason, msg string) {
 // and whether it is a pushed one: the innermost indirect match's, else the
 // ELF reader's, else the call's own from 0.
 func (s *scan) bufferBase() (int, bool) {
-	for i := range s.nframes {
+	for i := range min(s.nframes, len(s.frames)) { // a push never exceeds maxDepth
 		f := &s.frames[s.nframes-1-i]
 		if f.kind == kindIndirect {
 			return f.savedOutLen, true

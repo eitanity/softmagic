@@ -99,8 +99,8 @@ func (e *enc) str(s string) {
 // trimmed appends a fixed array as a u8-length-prefixed string without its
 // trailing NULs.
 func (e *enc) trimmed(a []byte) { // fixedArray
-	n := len(a)
-	for ; n > 0 && a[n-1] == 0; n-- {
+	var n int
+	for n = len(a); n > 0 && a[n-1] == 0; n-- {
 	}
 	if !invariant.Check(n <= 0xff, "array fits a u8 length") {
 		e.bad = true
@@ -429,7 +429,7 @@ func (d *dec) loadLiterals(db *Database) error { // database
 	for i := range db.regexes { // regexIndex
 		count := int(d.u8())
 		lits := make([]string, 0, count)
-		for k := 0; k < count && !d.err; k++ {
+		for k := 0; k <= 0xff && k < count && !d.err; k++ { // count is a u8
 			lits = append(lits, d.str())
 		}
 		flags := d.u8()

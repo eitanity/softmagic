@@ -150,7 +150,8 @@ func cToUpper(c byte) byte {
 // bytes b for n bytes with the string modifier flags; 0 means equal, and
 // otherwise the (wrapped) difference of the first differing bytes.
 func strncmp(a, b []byte, n, maxlen int, flags uint32) uint64 { // compareLength
-	if !invariant.Check(n >= 0 && maxlen >= 0, "lengths non-negative") {
+	if !invariant.Check(n >= 0 && maxlen >= 0, "lengths non-negative") ||
+		!invariant.Check(n <= maxString, "rule string within MAXstring") {
 		return 1
 	}
 	if flags == 0 {
@@ -168,7 +169,7 @@ func strncmp(a, b []byte, n, maxlen int, flags uint32) uint64 { // compareLength
 		eb = len(b)
 	}
 	c := strCursor{a: a, b: b, eb: eb, flags: flags} // cursor
-	for k := 0; k < n; k++ {
+	for k := 0; k < maxString && k < n; k++ {
 		if c.bi >= eb {
 			return 1
 		}
@@ -229,11 +230,12 @@ func (c *strCursor) step() uint64 {
 // word boundary after the string. It is the general loop specialised, and
 // returns what it would.
 func strncmpCase(a, b []byte, n int, flags uint32) uint64 { // fileBytes
-	if !invariant.Check(flags&(strCompactWhitespace|strCompactOptionalWhitespace) == 0, "no whitespace compaction") {
+	if !invariant.Check(flags&(strCompactWhitespace|strCompactOptionalWhitespace) == 0, "no whitespace compaction") ||
+		!invariant.Check(n >= 0 && n <= maxString, "rule string within MAXstring") {
 		return 1
 	}
 	lower, upper := flags&strIgnoreLowercase != 0, flags&strIgnoreUppercase != 0
-	for k := 0; k < n; k++ {
+	for k := 0; k < maxString && k < n; k++ {
 		ca, cb := at(a, k), at(b, k) // lineChar
 		switch {
 		case lower && cIsLower(ca):
@@ -253,10 +255,10 @@ func strncmpCase(a, b []byte, n int, flags uint32) uint64 { // fileBytes
 
 // strncmpPlain is the fast path: n bytes, NULs included.
 func strncmpPlain(a, b []byte, n int) uint64 {
-	if !invariant.Check(n >= 0, "length non-negative") {
+	if !invariant.Check(n >= 0 && n <= maxString, "rule string within MAXstring") {
 		return 1
 	}
-	for k := 0; k < n; k++ {
+	for k := 0; k < maxString && k < n; k++ {
 		if v := diff(at(b, k), at(a, k)); v != 0 {
 			return v
 		}
@@ -270,7 +272,7 @@ func diff(b, a byte) uint64 {
 }
 
 func skipSpaces(b []byte, i, end int) int {
-	for ; i < end && cIsSpace(b[i]); i++ {
+	for ; i < len(b) && i < end && cIsSpace(b[i]); i++ {
 	}
 	return i
 }
@@ -347,7 +349,7 @@ func searchFlagged(m *record, region []byte, slen, rng int) int { // searchRule
 	if slen > 0 && !cIsSpace(value[0]) {
 		return searchByCandidate(m, region, slen, tries)
 	}
-	for idx := 0; idx <= tries; idx++ {
+	for idx := 0; idx <= len(region) && idx <= tries; idx++ {
 		if slen+idx > len(region) {
 			return -1
 		}
@@ -382,7 +384,7 @@ func searchByCandidate(m *record, region []byte, slen, tries int) int {
 	if len(region)-slen < last {
 		last = len(region) - slen
 	}
-	for idx := 0; idx <= last; idx++ {
+	for idx := 0; idx <= min(last, len(region)); idx++ {
 		j := nextCandidate(region[idx:last+1], c1, c2)
 		if j < 0 {
 			return -1

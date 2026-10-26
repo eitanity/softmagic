@@ -143,7 +143,7 @@ func utf8Continuation(buf []byte, i, following int, class uint8) (int, bool) { /
 		return i, false
 	}
 	lo, hi := utf8AcceptRange(class) // hiBound
-	for n := 0; n < following; n++ {
+	for n := 0; n < 5 && n < following; n++ {
 		i++
 		if i >= len(buf) {
 			return len(buf), true
