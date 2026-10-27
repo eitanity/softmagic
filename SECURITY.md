@@ -122,6 +122,9 @@ a consumer's module graph (`go list -m all`).
 `make test` runs every test with assertions on and the race detector. `make lint` runs `go vet`,
 staticcheck, govulncheck, gosec and golangci-lint. Fuzzers cover identification from a slice and
 from a reader (`FuzzIdentify`, `FuzzIdentifyAt`), the rule compiler with joined and reloaded
-databases (`FuzzCompile`), and the compiled-database decoder (`FuzzLoad`, `FuzzLoadFields`).
+databases (`FuzzCompile`), the compiled-database decoder (`FuzzLoad`, `FuzzLoadFields`), and
+files built from typed fields, so that offsets, sizes and lengths reach their boundary values:
+ELF headers and tables (`FuzzELF`), Composite Document File headers and chains (`FuzzCDF`),
+nested ASN.1 DER lengths (`FuzzDER`) and length-prefixed strings (`FuzzPString`).
 `make fuzz` runs each of them on amd64 and 386, with assertions on and as released, and every
 fuzzed call fails if it allocates more than 64 MiB or takes more than 2 seconds.

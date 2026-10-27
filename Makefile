@@ -4,7 +4,8 @@
 # invariant panics instead of being recorded as Truncated "invariant".
 TAGS := -tags softmagic_assert
 FUZZTIME ?= 30s
-FUZZTARGETS := FuzzIdentify FuzzIdentifyAt FuzzCompile FuzzLoad FuzzLoadFields
+FUZZTARGETS := FuzzIdentify FuzzIdentifyAt FuzzCompile FuzzLoad FuzzLoadFields \
+	FuzzELF FuzzCDF FuzzDER FuzzPString
 # 386 has no coverage instrumentation, so there the fuzzer mutates blindly
 # and replays the corpus amd64 built; it is the host where int is 32 bits.
 FUZZARCHS := amd64 386
