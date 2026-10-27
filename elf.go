@@ -12,10 +12,8 @@
 package softmagic
 
 import (
-	"encoding/binary"
 	"errors"
 	"io"
-	"math"
 	"strconv"
 
 	"code.eitanity.com/softmagic/internal/invariant"
@@ -83,54 +81,37 @@ type elfState struct {
 	phNum     int
 	flags     int
 	notecount int
-	machine   uint16
+	machine   in16
 	class     uint8
 	swap      bool
 }
 
-// offInt is the reference's off_t cast of a file offset or size: a value
-// past the signed range cannot be read and is clamped, not wrapped.
-func offInt(v uint64) int64 {
-	if v > math.MaxInt64 {
-		return math.MaxInt64
-	}
-	return int64(v & math.MaxInt64)
-}
-
-// clampInt narrows a size to int within a limit.
-func clampInt(v uint64, limit int) int {
-	if v > bitsOfInt64(int64(limit)) {
-		return limit
-	}
-	return int(v & math.MaxInt32)
-}
-
 // u16 reads a half-word in the file's byte order.
-func (e *elfState) u16(b []byte) uint16 {
+func (e *elfState) u16(b []byte) in16 {
 	if e.swap {
-		return binary.BigEndian.Uint16(b)
+		return be16(b)
 	}
-	return binary.LittleEndian.Uint16(b)
+	return le16(b)
 }
 
-func (e *elfState) u32(b []byte) uint32 {
+func (e *elfState) u32(b []byte) in32 {
 	if e.swap {
-		return binary.BigEndian.Uint32(b)
+		return be32(b)
 	}
-	return binary.LittleEndian.Uint32(b)
+	return le32(b)
 }
 
-func (e *elfState) u64(b []byte) uint64 {
+func (e *elfState) u64(b []byte) in64 {
 	if e.swap {
-		return binary.BigEndian.Uint64(b)
+		return be64(b)
 	}
-	return binary.LittleEndian.Uint64(b)
+	return le64(b)
 }
 
 // word reads a class-sized address or offset.
-func (e *elfState) word(b []byte) uint64 {
+func (e *elfState) word(b []byte) in64 {
 	if e.class == elfClass32 {
-		return uint64(e.u32(b))
+		return in64(e.u32(b))
 	}
 	return e.u64(b)
 }
@@ -178,10 +159,10 @@ func (e *elfState) run(buf []byte) {
 	}
 	typ := e.u16(buf[16:])
 	e.machine = e.u16(buf[18:])
-	var phoff, shoff uint64
-	var phentsize, phnum, shentsize, shnum, shstrndx uint16
+	var phoff, shoff in64
+	var phentsize, phnum, shentsize, shnum, shstrndx in16
 	if e.class == elfClass32 {
-		phoff, shoff = uint64(e.u32(buf[28:])), uint64(e.u32(buf[32:]))
+		phoff, shoff = in64(e.u32(buf[28:])), in64(e.u32(buf[32:]))
 		phentsize, phnum = e.u16(buf[42:]), e.u16(buf[44:])
 		shentsize, shnum, shstrndx = e.u16(buf[46:]), e.u16(buf[48:]), e.u16(buf[50:])
 	} else {
@@ -191,39 +172,39 @@ func (e *elfState) run(buf []byte) {
 	}
 	switch typ {
 	case etCore:
-		if int(phnum) > e.s.lim.elfPhnum {
+		if inInt(phnum) > e.s.lim.elfPhnum {
 			e.tooMany("program headers", phnum)
 			return
 		}
 		e.flags |= elfIsCore
-		e.phOff, e.phNum = offInt(phoff), int(phnum)
-		e.phdrCore(e.phOff, e.phNum, int(phentsize))
+		e.phOff, e.phNum = offInt(phoff), inInt(phnum)
+		e.phdrCore(e.phOff, e.phNum, inInt(phentsize))
 	case etExec, etDyn:
-		if int(phnum) > e.s.lim.elfPhnum {
+		if inInt(phnum) > e.s.lim.elfPhnum {
 			e.tooMany("program", phnum)
 			return
 		}
-		if int(shnum) > e.s.lim.elfShnum {
+		if inInt(shnum) > e.s.lim.elfShnum {
 			e.tooMany("section", shnum)
 			return
 		}
-		e.phdrExec(offInt(phoff), int(phnum), int(phentsize), shnum != 0)
-		e.shdr(offInt(shoff), int(shnum), int(shentsize), int(shstrndx))
+		e.phdrExec(offInt(phoff), inInt(phnum), inInt(phentsize), shnum != 0)
+		e.shdr(offInt(shoff), inInt(shnum), inInt(shentsize), inInt(shstrndx))
 	case etRel:
-		if int(shnum) > e.s.lim.elfShnum {
+		if inInt(shnum) > e.s.lim.elfShnum {
 			e.tooMany("section headers", shnum)
 			return
 		}
-		e.shdr(offInt(shoff), int(shnum), int(shentsize), int(shstrndx))
+		e.shdr(offInt(shoff), inInt(shnum), inInt(shentsize), inInt(shstrndx))
 	default:
 	}
 	if e.notecount == 0 {
-		e.tooMany("notes", low16(bitsOfInt64(int64(e.s.lim.elfNotes)))) // at most limit16Max
+		e.tooMany("notes", in16(low16(bitsOfInt64(int64(e.s.lim.elfNotes))))) // at most limit16Max
 	}
 }
 
-func (e *elfState) tooMany(what string, n uint16) {
-	e.printf(", too many " + what + " (" + strconv.Itoa(int(n)) + ")")
+func (e *elfState) tooMany(what string, n in16) {
+	e.printf(", too many " + what + " (" + strconv.Itoa(inInt(n)) + ")")
 }
 
 // phdrSize is xph_sizeof.
@@ -236,11 +217,11 @@ func (e *elfState) phdrSize() int {
 
 // phdr is one program header's used fields.
 type elfPhdr struct {
-	typ    uint32
-	offset uint64
-	vaddr  uint64
-	filesz uint64
-	align  uint64
+	typ    in32
+	offset in64
+	vaddr  in64
+	filesz in64
+	align  in64
 }
 
 func (e *elfState) parsePhdr(b []byte) elfPhdr { // headerBytes
@@ -251,7 +232,7 @@ func (e *elfState) parsePhdr(b []byte) elfPhdr { // headerBytes
 	var p elfPhdr // programHeader
 	p.typ = e.u32(b[0:])
 	if e.class == elfClass32 {
-		p.offset, p.vaddr, p.filesz, p.align = uint64(e.u32(b[4:])), uint64(e.u32(b[8:])), uint64(e.u32(b[16:])), uint64(e.u32(b[28:]))
+		p.offset, p.vaddr, p.filesz, p.align = in64(e.u32(b[4:])), in64(e.u32(b[8:])), in64(e.u32(b[16:])), in64(e.u32(b[28:]))
 	} else {
 		p.offset, p.vaddr, p.filesz, p.align = e.u64(b[8:]), e.u64(b[16:]), e.u64(b[32:]), e.u64(b[48:])
 	}
@@ -323,7 +304,7 @@ func (e *elfState) phdrEntry(st *phdrState, ph *elfPhdr, haveSections bool) bool
 		}
 		align := ph.align
 		if align&0x80000000 != 0 || align < 4 {
-			e.printf(", invalid note alignment 0x" + strconv.FormatUint(align, 16))
+			e.printf(", invalid note alignment 0x" + strconv.FormatUint(value(align), 16))
 			align = 4
 		}
 		data, ok := e.readSegment(ph)
@@ -349,7 +330,7 @@ func (e *elfState) readSegment(ph *elfPhdr) ([]byte, bool) {
 	n := clampInt(ph.filesz, elfNbufSize)
 	data, ok := e.s.readUpTo(offInt(ph.offset), n)
 	if !ok {
-		e.printf(", can't read section at " + strconv.FormatUint(ph.offset, 10))
+		e.printf(", can't read section at " + strconv.FormatUint(value(ph.offset), 10))
 		return nil, false
 	}
 	return data, true
@@ -450,10 +431,10 @@ func (e *elfState) shdrSize() int {
 
 // elfShdr is one section header's used fields.
 type elfShdr struct {
-	name   uint32
-	typ    uint32
-	offset uint64
-	size   uint64
+	name   in32
+	typ    in32
+	offset in64
+	size   in64
 }
 
 func (e *elfState) parseShdr(b []byte) elfShdr { // headerBytes
@@ -464,7 +445,7 @@ func (e *elfState) parseShdr(b []byte) elfShdr { // headerBytes
 	var sh elfShdr // sectionHeader
 	sh.name, sh.typ = e.u32(b[0:]), e.u32(b[4:])
 	if e.class == elfClass32 {
-		sh.offset, sh.size = uint64(e.u32(b[16:])), uint64(e.u32(b[20:]))
+		sh.offset, sh.size = in64(e.u32(b[16:])), in64(e.u32(b[20:]))
 	} else {
 		sh.offset, sh.size = e.u64(b[24:]), e.u64(b[32:])
 	}
@@ -506,7 +487,7 @@ func (e *elfState) shdr(off int64, num, size, strtab int) {
 
 // shdrState accumulates across sections.
 type shdrState struct {
-	capHW1, capSF1 uint64
+	capHW1, capSF1 in64
 	nbadcap        int
 	stripped       bool
 	hasDebugInfo   bool
@@ -520,7 +501,7 @@ func (e *elfState) oneSection(st *shdrState, off int64, size int, nameOff int64)
 		return false
 	}
 	sh := e.parseShdr(hb) // sectionHeader
-	nameAt := nameOff + int64(sh.name)
+	nameAt := nameOff + inInt64(sh.name)
 	name, ok := e.s.readUpTo(nameAt, 49)
 	if !ok {
 		e.printf(", can't read name of elf section at " + strconv.FormatInt(nameAt, 10))
@@ -547,15 +528,15 @@ func (e *elfState) oneSection(st *shdrState, off int64, size int, nameOff int64)
 
 // noteSection is doshn's SHT_NOTE case.
 func (e *elfState) noteSection(sh *elfShdr) bool { // sectionHeader
-	if e.fsize >= 0 && sh.size+sh.offset > uint64(e.fsize) {
-		e.printf(", note offset/size 0x" + strconv.FormatUint(sh.offset, 16) + "+0x" +
-			strconv.FormatUint(sh.size, 16) + " exceeds file size 0x" + strconv.FormatInt(e.fsize, 16))
+	if e.fsize >= 0 && inWrapAdd(sh.size, sh.offset) > in64(e.fsize) {
+		e.printf(", note offset/size 0x" + strconv.FormatUint(value(sh.offset), 16) + "+0x" +
+			strconv.FormatUint(value(sh.size), 16) + " exceeds file size 0x" + strconv.FormatInt(e.fsize, 16))
 		return false
 	}
-	if sh.size > bitsOfInt64(int64(e.s.lim.elfShsize)) { // a resolved limit is non-negative
+	if sh.size > in64(bitsOfInt64(int64(e.s.lim.elfShsize))) { // a resolved limit is non-negative
 		// The reference's message carries the errno left from an earlier
 		// call, which is EINVAL on the hosts it was compared on.
-		e.s.abortWith(TruncELF, "Note section size too big ("+strconv.FormatUint(sh.size, 10)+" > "+
+		e.s.abortWith(TruncELF, "Note section size too big ("+strconv.FormatUint(value(sh.size), 10)+" > "+
 			strconv.Itoa(e.s.lim.elfShsize)+") (Invalid argument)")
 		return false
 	}
@@ -565,7 +546,7 @@ func (e *elfState) noteSection(sh *elfShdr) bool { // sectionHeader
 	}
 	data, ok := e.s.readAt(offInt(sh.offset), clampInt(sh.size, elfShsizeMax))
 	if !ok {
-		e.printf(", can't read elf note at " + strconv.FormatUint(sh.offset, 10))
+		e.printf(", can't read elf note at " + strconv.FormatUint(value(sh.offset), 10))
 		return false
 	}
 	e.notes(data, 4)

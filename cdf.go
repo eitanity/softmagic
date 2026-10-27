@@ -13,7 +13,6 @@ package softmagic
 import (
 	"code.eitanity.com/softmagic/internal/invariant"
 
-	"encoding/binary"
 	"strconv"
 	"time"
 )
@@ -80,28 +79,30 @@ const (
 
 // cdfHeader is the 512-byte file header.
 type cdfHeader struct {
-	secSizeP2      uint16
-	shortSecSizeP2 uint16
+	secSizeP2      in16
+	shortSecSizeP2 in16
 	firstDirectory int32
-	minStdStream   uint32
+	minStdStream   in32
 	firstShortSAT  int32
-	numShortSAT    uint32
+	numShortSAT    in32
 	firstMasterSAT int32
-	numMasterSAT   uint32
+	numMasterSAT   in32
 	masterSAT      [109]int32
-	uuid           [2]uint64
+	uuid           [2]in64
 }
 
-func (h *cdfHeader) secSize() int      { return 1 << h.secSizeP2 }
-func (h *cdfHeader) shortSecSize() int { return 1 << h.shortSecSizeP2 }
+// The sector sizes' exponents are at most cdfSecSizeP2Max, which
+// cdfReadHeader checks.
+func (h *cdfHeader) secSize() int      { return 1 << inInt(h.secSizeP2) }
+func (h *cdfHeader) shortSecSize() int { return 1 << inInt(h.shortSecSizeP2) }
 
 // cdfDir is one directory entry.
 type cdfDir struct {
-	name        [32]uint16
+	name        [32]in16
 	typ         uint8
-	storageUUID [2]uint64
+	storageUUID [2]in64
 	firstSector int32
-	size        uint32
+	size        in32
 }
 
 // cdfStream is a stream's bytes: len sectors of ss bytes, dirlen the
@@ -111,7 +112,7 @@ type cdfStream struct {
 	props  []cdfProp // scratch for the properties read from this stream
 	len    int
 	ss     int
-	dirlen uint32
+	dirlen in32
 }
 
 func (st *cdfStream) size() int { return st.ss * st.len }
@@ -120,8 +121,8 @@ func (st *cdfStream) size() int { return st.ss * st.len }
 type cdfProp struct {
 	str  []byte
 	u64  uint64
-	id   uint32
-	typ  uint32
+	id   in32
+	typ  in32
 	wide bool
 }
 
@@ -145,7 +146,7 @@ func secidAt(tab []byte, i int64) int32 {
 	if i < 0 || i*4+4 > int64(len(tab)) {
 		return cdfSecidEOC
 	}
-	return wrapInt32(int64(binary.LittleEndian.Uint32(tab[i*4:])))
+	return inSID(le32(tab[i*4:]))
 }
 
 // read is cdf_read: n bytes at off from the input, through the window or
@@ -169,21 +170,20 @@ func (c *cdfFile) readSector(id int32) ([]byte, bool) {
 // cdfReadHeader is cdf_read_header.
 func cdfReadHeader(buf []byte) (cdfHeader, bool) {
 	var h cdfHeader // header
-	if len(buf) < 512 || binary.LittleEndian.Uint64(buf) != cdfMagic {
+	if len(buf) < 512 || le64(buf) != cdfMagic {
 		return h, false
 	}
-	le := binary.LittleEndian // littleEndian
-	h.uuid[0], h.uuid[1] = le.Uint64(buf[8:]), le.Uint64(buf[16:])
-	h.secSizeP2 = le.Uint16(buf[30:])
-	h.shortSecSizeP2 = le.Uint16(buf[32:])
-	h.firstDirectory = wrapInt32(int64(le.Uint32(buf[48:])))
-	h.minStdStream = le.Uint32(buf[56:])
-	h.firstShortSAT = wrapInt32(int64(le.Uint32(buf[60:])))
-	h.numShortSAT = le.Uint32(buf[64:])
-	h.firstMasterSAT = wrapInt32(int64(le.Uint32(buf[68:])))
-	h.numMasterSAT = le.Uint32(buf[72:])
+	h.uuid[0], h.uuid[1] = le64(buf[8:]), le64(buf[16:])
+	h.secSizeP2 = le16(buf[30:])
+	h.shortSecSizeP2 = le16(buf[32:])
+	h.firstDirectory = inSID(le32(buf[48:]))
+	h.minStdStream = le32(buf[56:])
+	h.firstShortSAT = inSID(le32(buf[60:]))
+	h.numShortSAT = le32(buf[64:])
+	h.firstMasterSAT = inSID(le32(buf[68:]))
+	h.numMasterSAT = le32(buf[72:])
 	for i := range h.masterSAT {
-		h.masterSAT[i] = wrapInt32(int64(le.Uint32(buf[76+4*i:])))
+		h.masterSAT[i] = inSID(le32(buf[76+4*i:]))
 	}
 	if h.secSizeP2 > cdfSecSizeP2Max || h.shortSecSizeP2 > cdfSecSizeP2Max {
 		return h, false
@@ -211,7 +211,7 @@ func (c *cdfFile) readSAT() bool {
 		return false
 	}
 	mid := h.firstMasterSAT
-	nmaster := min(intFromU32(h.numMasterSAT), cdfLoopLimit+1) // the body returns at the loop limit
+	nmaster := min(inInt(h.numMasterSAT), cdfLoopLimit+1) // the body returns at the loop limit
 	for j := 0; j < nmaster; j++ {
 		if mid < 0 {
 			c.sat = c.sat[:i*ss]
@@ -265,10 +265,10 @@ func (c *cdfFile) satGeometry(nsatpersec int) (used, satLen int, ok bool) {
 	for ; i < len(h.masterSAT) && h.masterSAT[i] != cdfSecidFree; i++ {
 	}
 	secLimit := intFromU32(low32(maxUint32 / bitsOfInt64(int64(64*ss)))) // fits int32: ss is at least 4
-	if (nsatpersec > 0 && intFromU32(h.numMasterSAT) > secLimit/nsatpersec) || i > secLimit {
+	if (nsatpersec > 0 && inInt(h.numMasterSAT) > secLimit/nsatpersec) || i > secLimit {
 		return 0, 0, false
 	}
-	satLen = intFromU32(h.numMasterSAT)*nsatpersec + i
+	satLen = inInt(h.numMasterSAT)*nsatpersec + i
 	if ss != 0 && satLen > cdfSATLimit/ss {
 		return 0, 0, false
 	}
@@ -368,7 +368,7 @@ func (c *cdfFile) longChainFits(n int) bool {
 }
 
 // readLongChain is cdf_read_long_sector_chain.
-func (c *cdfFile) readLongChain(sid int32, length uint32) (cdfStream, bool) {
+func (c *cdfFile) readLongChain(sid int32, length in32) (cdfStream, bool) {
 	ss := c.h.secSize()                     // sectorSize
 	st := cdfStream{ss: ss, dirlen: length} // stream
 	if st.dirlen < c.h.minStdStream {
@@ -437,7 +437,7 @@ func (c *cdfFile) partialSector(id int32) ([]byte, bool) {
 }
 
 // readShortChain is cdf_read_short_sector_chain.
-func (c *cdfFile) readShortChain(sid int32, length uint32) (cdfStream, bool) {
+func (c *cdfFile) readShortChain(sid int32, length in32) (cdfStream, bool) {
 	ss := c.h.shortSecSize()     // shortSectorSize
 	n := countChain(c.ssat, sid) // chainLength
 	if n < 0 || !c.chainFits(n, ss, int64(c.sst.size())) {
@@ -463,7 +463,7 @@ func (c *cdfFile) readShortChain(sid int32, length uint32) (cdfStream, bool) {
 }
 
 // readChain is cdf_read_sector_chain.
-func (c *cdfFile) readChain(sid int32, length uint32) (cdfStream, bool) {
+func (c *cdfFile) readChain(sid int32, length in32) (cdfStream, bool) {
 	if length < c.h.minStdStream && c.sst.tab != nil {
 		return c.readShortChain(sid, length)
 	}
@@ -511,15 +511,14 @@ func unpackDir(b []byte) cdfDir { // entryBytes
 	if !invariant.Check(len(b) >= cdfDirectorySz, "directory entry complete") {
 		return cdfDir{}
 	}
-	le := binary.LittleEndian // littleEndian
-	var d cdfDir              // directoryEntry
+	var d cdfDir // directoryEntry
 	for i := range d.name {
-		d.name[i] = le.Uint16(b[2*i:])
+		d.name[i] = le16(b[2*i:])
 	}
 	d.typ = b[66]
-	d.storageUUID[0], d.storageUUID[1] = le.Uint64(b[80:]), le.Uint64(b[88:])
-	d.firstSector = wrapInt32(int64(le.Uint32(b[116:])))
-	d.size = le.Uint32(b[120:])
+	d.storageUUID[0], d.storageUUID[1] = le64(b[80:]), le64(b[88:])
+	d.firstSector = inSID(le32(b[116:]))
+	d.size = le32(b[120:])
 	return d
 }
 
@@ -576,7 +575,7 @@ func nameEquals(name string, d *cdfDir) bool { // directoryEntry
 		return false
 	}
 	for i := 0; i < len(name); i++ {
-		if uint16(name[i]) != d.name[i] {
+		if in16(name[i]) != d.name[i] {
 			return false
 		}
 	}
@@ -606,8 +605,8 @@ func (c *cdfFile) readUserStream(name string) (st cdfStream, found, ok bool) {
 
 // getu32 is CDF_GETUINT32(p, i): the i-th u32 at p, with p and the stream
 // bound checked by the caller.
-func getu32(tab []byte, p, i int) uint32 {
-	return binary.LittleEndian.Uint32(tab[p+4*i:])
+func getu32(tab []byte, p, i int) in32 {
+	return le32(tab[p+4*i:])
 }
 
 // propertyPos is cdf_get_property_info_pos: the offset of property i's
@@ -617,7 +616,7 @@ func propertyPos(st *cdfStream, p, e, i int) int { // sectionStart
 	if p >= e || p+(tail+1)*4 > st.size() {
 		return -1
 	}
-	ofs := int64(getu32(st.tab, p, tail))
+	ofs := inInt64(getu32(st.tab, p, tail))
 	if ofs < 8 {
 		return -1
 	}
@@ -629,26 +628,26 @@ func propertyPos(st *cdfStream, p, e, i int) int { // sectionStart
 }
 
 // readPropertyInfo is cdf_read_property_info over the section at offs.
-func readPropertyInfo(st *cdfStream, offs uint32) ([]cdfProp, bool) { // stream
-	if offs > 0xffffffff/4 || int64(offs)+8 > int64(st.size()) {
+func readPropertyInfo(st *cdfStream, offs in32) ([]cdfProp, bool) { // stream
+	if offs > 0xffffffff/4 || inInt64(offs)+8 > int64(st.size()) {
 		return nil, false
 	}
-	shp := intFromU32(offs)
+	shp := inInt(offs)
 	shLen := getu32(st.tab, shp, 0)
-	if shLen > cdfShlenLimit || int64(shp)+int64(shLen) > int64(st.size()) {
+	if shLen > cdfShlenLimit || int64(shp)+inInt64(shLen) > int64(st.size()) {
 		return nil, false
 	}
 	nprops := getu32(st.tab, shp, 1)
 	if nprops > cdfPropLimit || nprops > cdfElementLimit {
 		return nil, false
 	}
-	p, e := shp+8, shp+intFromU32(shLen) // sectionStart
+	p, e := shp+8, shp+inInt(shLen) // sectionStart
 	if p >= e {
 		return nil, false
 	}
-	count := intFromU32(nprops) // propertyCount
+	count := inInt(nprops) // propertyCount
 	if cap(st.props) < count {
-		st.props = make([]cdfProp, 0, nprops)
+		st.props = make([]cdfProp, 0, count)
 	}
 	props := st.props[:0]
 	pr := propReader{st: st, p: p, e: e, n: count}
@@ -687,7 +686,7 @@ func (pr *propReader) one(props []cdfProp, i int) ([]cdfProp, int, bool) { // pr
 		if left < 8 {
 			return nil, i, false
 		}
-		nelements = intFromU32(getu32(pr.st.tab, q, 1))
+		nelements = inInt(getu32(pr.st.tab, q, 1))
 		if nelements > cdfElementLimit || nelements == 0 {
 			return nil, i, false
 		}
@@ -722,11 +721,11 @@ func (pr *propReader) copyInfo(pos, n int, prop *cdfProp) uint64 {
 	}
 	switch n {
 	case 2:
-		return uint64(binary.LittleEndian.Uint16(pr.st.tab[pos:]))
+		return value(le16(pr.st.tab[pos:]))
 	case 4:
-		return uint64(binary.LittleEndian.Uint32(pr.st.tab[pos:]))
+		return value(le32(pr.st.tab[pos:]))
 	default:
-		return binary.LittleEndian.Uint64(pr.st.tab[pos:])
+		return value(le64(pr.st.tab[pos:]))
 	}
 }
 
@@ -741,7 +740,7 @@ func (pr *propReader) strings(props []cdfProp, prop cdfProp, i, q, nelements, sl
 		if o4+4 > left {
 			return nil, i, false
 		}
-		l := intFromU32(getu32(pr.st.tab, q, slen)) // stringLength
+		l := inInt(getu32(pr.st.tab, q, slen)) // stringLength
 		o4 += 4
 		if l > left-o4 { // not o4+l > left: that sum can wrap a 32-bit int
 			return nil, i, false
@@ -762,9 +761,9 @@ func (pr *propReader) strings(props []cdfProp, prop cdfProp, i, q, nelements, sl
 
 // cdfSummary is cdf_summary_info_header_t's used fields.
 type cdfSummary struct {
-	byteOrder uint16
-	osVersion uint16
-	os        uint16
+	byteOrder in16
+	osVersion in16
+	os        in16
 }
 
 // unpackSummaryInfo is cdf_unpack_summary_info.
@@ -773,11 +772,10 @@ func unpackSummaryInfo(st *cdfStream) (cdfSummary, []cdfProp, bool) { // stream
 	if st.size() < cdfSectionDecl+20 {
 		return si, nil, false
 	}
-	le := binary.LittleEndian
-	si.byteOrder = le.Uint16(st.tab[0:])
-	si.osVersion = le.Uint16(st.tab[4:])
-	si.os = le.Uint16(st.tab[6:])
-	props, ok := readPropertyInfo(st, le.Uint32(st.tab[cdfSectionDecl+16:]))
+	si.byteOrder = le16(st.tab[0:])
+	si.osVersion = le16(st.tab[4:])
+	si.os = le16(st.tab[6:])
+	props, ok := readPropertyInfo(st, le32(st.tab[cdfSectionDecl+16:]))
 	return si, props, ok
 }
 
@@ -792,7 +790,7 @@ func (pr cdfPrinter) notMime() bool { return !pr.mime }
 func (pr cdfPrinter) write(str string) { pr.s.writeString(str) }
 
 // clsidName is cdf_clsid_to_mime over the one-entry tables.
-func clsidName(uuid [2]uint64, mime bool) string {
+func clsidName(uuid [2]in64, mime bool) string {
 	if uuid[0] == 0x00000000000c1084 && uuid[1] == 0x46000000000000c0 {
 		if mime {
 			return "vnd.ms-msi"
@@ -858,7 +856,7 @@ func containsFold(s, sub string) bool {
 }
 
 // propertyName is cdf_print_property_name.
-func propertyName(id uint32) string { // propertyID
+func propertyName(id in32) string { // propertyID
 	names := [...]string{
 		1: "Code page", "Title", "Subject", "Author", "Keywords", "Comments", "Template",
 		"Last Saved By", "Revision Number", "Total Editing Time", "Last Printed",
@@ -868,10 +866,10 @@ func propertyName(id uint32) string { // propertyID
 	if id == 0x80000000 {
 		return "Locale ID"
 	}
-	if id >= 1 && id < uint32(len(names)) {
+	if id >= 1 && id < in32(len(names)) {
 		return names[id]
 	}
-	return "0x" + strconv.FormatUint(uint64(id), 16)
+	return "0x" + strconv.FormatUint(value(id), 16)
 }
 
 // propertyText is the printable text of a string property as the

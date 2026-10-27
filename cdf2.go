@@ -7,7 +7,6 @@
 package softmagic
 
 import (
-	"encoding/binary"
 	"math"
 	"strconv"
 
@@ -182,7 +181,7 @@ func dirNameString(d *cdfDir) string {
 	var b [32]byte
 	n := 0
 	for ; n < len(d.name) && d.name[n] != 0; n++ {
-		b[n] = low8(uint64(d.name[n]))
+		b[n] = low8(value(d.name[n]))
 	}
 	return string(b[:n])
 }
@@ -200,14 +199,14 @@ func (pr cdfPrinter) fileSummaryInfo(c *cdfFile, st *cdfStream) int { // cdfFile
 		} else {
 			pr.write(", Big Endian")
 		}
-		lo, hi := strconv.Itoa(int(si.osVersion&0xff)), strconv.Itoa(int(si.osVersion>>8)) // osVersionLow
+		lo, hi := strconv.Itoa(inInt(si.osVersion&0xff)), strconv.Itoa(inInt(si.osVersion>>8)) // osVersionLow
 		switch si.os {
 		case 2:
 			pr.write(", Os: Windows, Version " + lo + "." + hi)
 		case 1:
 			pr.write(", Os: MacOS, Version " + hi + "." + lo)
 		default:
-			pr.write(", Os " + strconv.Itoa(int(si.os)) + ", Version: " + lo + "." + hi)
+			pr.write(", Os " + strconv.Itoa(inInt(si.os)) + ", Version: " + lo + "." + hi)
 		}
 		if c.root >= 0 && c.root < len(c.dir) {
 			if str := clsidName(c.dir[c.root].storageUUID, false); str != "" {
@@ -387,7 +386,7 @@ func unpackCatalog(st *cdfStream) ([]string, bool) {
 	b := 0 // recordOff
 	// catalogRecords counts at most len(tab)+1 records, and one is dropped.
 	for i := 0; i < len(tab) && i < nr && b <= len(tab)-16; i++ {
-		reclen := int(binary.LittleEndian.Uint16(tab[b:]))
+		reclen := inInt(le16(tab[b:]))
 		if reclen < 14 {
 			b += reclen
 			continue
@@ -412,7 +411,7 @@ func catalogRecords(tab []byte) int {
 	}
 	nr, b := 0, 0 // recordOff
 	for ; nr <= len(tab) && b <= len(tab)-2; nr++ {
-		reclen := int(binary.LittleEndian.Uint16(tab[b:]))
+		reclen := inInt(le16(tab[b:]))
 		if reclen == 0 {
 			break
 		}
@@ -432,11 +431,11 @@ func catalogName(b []byte, n int) string {
 	var name [255]byte
 	k := 0 // nameIdx
 	for ; k < len(name) && k < n; k++ {
-		u := binary.LittleEndian.Uint16(b[2*k:])
+		u := le16(b[2*k:])
 		if u == 0 {
 			break
 		}
-		name[k] = low8(uint64(u))
+		name[k] = low8(value(u))
 	}
 	return string(name[:k])
 }

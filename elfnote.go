@@ -39,7 +39,7 @@ const (
 type elfNote struct {
 	name []byte // namesz bytes, NUL included when the writer included it
 	desc []byte
-	typ  uint32
+	typ  in32
 }
 
 // nameIs is NAMEEQUALS: the name is v followed by a NUL.
@@ -83,26 +83,26 @@ func (e *elfState) note(data []byte, offset, align int) int {
 		return len(data)
 	}
 	if namesz&0x80000000 != 0 {
-		e.printf(", bad note name size 0x" + strconv.FormatUint(uint64(namesz), 16))
+		e.printf(", bad note name size 0x" + strconv.FormatUint(value(namesz), 16))
 		return 0
 	}
 	if descsz&0x80000000 != 0 {
-		e.printf(", bad note description size 0x" + strconv.FormatUint(uint64(descsz), 16))
+		e.printf(", bad note description size 0x" + strconv.FormatUint(value(descsz), 16))
 		return 0
 	}
 	// Sizes are below 2^31 here, but their sums with an offset are formed
 	// in 64 bits so a 32-bit host cannot wrap them; a step past the end
 	// is reported as the end.
 	noff := offset
-	if int64(offset)+int64(namesz) > int64(len(data)) {
+	if int64(offset)+inInt64(namesz) > int64(len(data)) {
 		return len(data)
 	}
-	doff := alignUp(offset+intFromU32(namesz), align)
-	if int64(doff)+int64(descsz) > int64(len(data)) {
+	doff := alignUp(offset+inInt(namesz), align)
+	if int64(doff)+inInt64(descsz) > int64(len(data)) {
 		return len(data)
 	}
-	next := alignUp(doff+intFromU32(descsz), align)
-	n := elfNote{typ: typ, name: data[noff : noff+intFromU32(namesz)], desc: data[doff : doff+intFromU32(descsz)]}
+	next := alignUp(doff+inInt(descsz), align)
+	n := elfNote{typ: typ, name: data[noff : noff+inInt(namesz)], desc: data[doff : doff+inInt(descsz)]}
 	e.handleNote(&n, data, doff)
 	return next
 }
@@ -180,8 +180,8 @@ func (e *elfState) osNote(n *elfNote) bool { // note
 		e.printf(", for SuSE " + strconv.Itoa(int(d[0])) + "." + strconv.Itoa(int(d[1])))
 	case n.nameIs("GNU") && n.typ == ntGNUVersion && len(d) == 16:
 		e.flags |= elfDidOSNote
-		e.printf(", for GNU/" + gnuOSName(e.u32(d)) + " " + strconv.FormatUint(uint64(e.u32(d[4:])), 10) +
-			"." + strconv.FormatUint(uint64(e.u32(d[8:])), 10) + "." + strconv.FormatUint(uint64(e.u32(d[12:])), 10))
+		e.printf(", for GNU/" + gnuOSName(e.u32(d)) + " " + strconv.FormatUint(value(e.u32(d[4:])), 10) +
+			"." + strconv.FormatUint(value(e.u32(d[8:])), 10) + "." + strconv.FormatUint(value(e.u32(d[12:])), 10))
 	case n.nameIs("NetBSD") && n.typ == ntNetBSDVersion && len(d) == 4:
 		e.flags |= elfDidOSNote
 		e.netbsdVersion(e.u32(d))
@@ -194,11 +194,11 @@ func (e *elfState) osNote(n *elfNote) bool { // note
 	case n.nameIs("DragonFly") && n.typ == ntDragonFlyVersion && len(d) == 4:
 		e.flags |= elfDidOSNote
 		v := e.u32(d)
-		e.printf(", for DragonFly " + strconv.FormatUint(uint64(v/100000), 10) + "." +
-			strconv.FormatUint(uint64(v/10000%10), 10) + "." + strconv.FormatUint(uint64(v%10000), 10))
+		e.printf(", for DragonFly " + strconv.FormatUint(value(v/100000), 10) + "." +
+			strconv.FormatUint(value(v/10000%10), 10) + "." + strconv.FormatUint(value(v%10000), 10))
 	case n.nameIs("Android") && n.typ == ntAndroidVersion && len(d) >= 4:
 		e.flags |= elfDidOSNote
-		e.printf(", for Android " + strconv.FormatUint(uint64(e.u32(d)), 10))
+		e.printf(", for Android " + strconv.FormatUint(value(e.u32(d)), 10))
 		if len(d) >= 4+64+64 {
 			e.printf(", built by NDK " + cString(d[4:68]) + " (" + cString(d[68:132]) + ")")
 		}
@@ -209,7 +209,7 @@ func (e *elfState) osNote(n *elfNote) bool { // note
 	return true
 }
 
-func gnuOSName(v uint32) string {
+func gnuOSName(v in32) string {
 	switch v {
 	case 0:
 		return "Linux"
@@ -227,40 +227,40 @@ func gnuOSName(v uint32) string {
 }
 
 // netbsdVersion is do_note_netbsd_version.
-func (e *elfState) netbsdVersion(desc uint32) {
+func (e *elfState) netbsdVersion(desc in32) {
 	e.printf(", for NetBSD")
 	if desc <= 100000000 {
 		return
 	}
-	patch := (desc / 100) % 100
-	rel := (desc / 10000) % 100
-	minor := (desc / 1000000) % 100
-	major := desc / 100000000
-	e.printf(" " + strconv.FormatUint(uint64(major), 10) + "." + strconv.FormatUint(uint64(minor), 10))
+	patch := inInt((desc / 100) % 100) // each field is below 100
+	rel := inInt((desc / 10000) % 100)
+	minor := inInt((desc / 1000000) % 100)
+	major := inInt(desc / 100000000)
+	e.printf(" " + strconv.Itoa(major) + "." + strconv.Itoa(minor))
 	if major >= 9 {
 		patch += 100 * rel
 		rel = 0
 	}
 	switch {
 	case rel == 0 && patch != 0:
-		e.printf("." + strconv.FormatUint(uint64(patch), 10))
+		e.printf("." + strconv.Itoa(patch))
 	case rel != 0:
 		for k := 0; k < 4 && rel > 26; k++ { // rel is below 100
 			e.printf("Z")
 			rel -= 26
 		}
-		e.s.writeByte('A' + low8(uint64(rel)) - 1)
+		e.s.writeByte('A' + low8(uint64(rel&0xff)) - 1)
 	}
 }
 
 // freebsdVersion is do_note_freebsd_version.
-func (e *elfState) freebsdVersion(desc uint32) {
+func (e *elfState) freebsdVersion(desc in32) {
 	if !invariant.Check(e.flags&elfDidOSNote != 0, "OS note flagged by the caller") {
 		e.s.truncate(TruncInvariant)
 		return
 	}
 	e.printf(", for FreeBSD")
-	d := uint64(desc) // descValue
+	d := value(desc) // descValue
 	switch {
 	case desc == 460002:
 		e.printf(" 4.6.2")
@@ -314,7 +314,7 @@ func (e *elfState) memtagNote(n *elfNote) bool {
 
 // flagList prints the names of the set bits, comma separated, after the
 // prefix; an empty name skips its bit.
-func (e *elfState) flagList(desc uint32, prefix string, names [6]string) {
+func (e *elfState) flagList(desc in32, prefix string, names [6]string) {
 	if !invariant.Check(prefix != "", "list has a prefix") {
 		e.s.truncate(TruncInvariant)
 		return
@@ -356,7 +356,7 @@ func (e *elfState) netbsdNote(n *elfNote) { // note
 	default:
 		if e.flags&elfDidUnknown == 0 {
 			e.flags |= elfDidUnknown
-			e.printf(", note=" + strconv.FormatUint(uint64(n.typ), 10))
+			e.printf(", note=" + strconv.FormatUint(value(n.typ), 10))
 		}
 		return
 	}
@@ -409,10 +409,10 @@ func (e *elfState) netbsdCore(n *elfNote) bool { // note
 	var pi [160]byte // psinfo
 	copy(pi[:], n.desc)
 	name := printable(e.s.rxScratch(printableMax), pi[124:156], 31, e.s.raw || e.s.safe)
-	e.printf(", from '" + e.s.fileText(string(name)) + "', pid=" + u10(uint64(e.u32(pi[80:84]))) +
-		", uid=" + u10(uint64(e.u32(pi[100:104]))) + ", gid=" + u10(uint64(e.u32(pi[112:116]))) +
-		", nlwps=" + u10(uint64(e.u32(pi[120:124]))) + ", lwp=" + u10(uint64(e.u32(pi[156:160]))) +
-		" (signal " + u10(uint64(e.u32(pi[8:12]))) + "/code " + u10(uint64(e.u32(pi[12:16]))) + ")")
+	e.printf(", from '" + e.s.fileText(string(name)) + "', pid=" + u10(value(e.u32(pi[80:84]))) +
+		", uid=" + u10(value(e.u32(pi[100:104]))) + ", gid=" + u10(value(e.u32(pi[112:116]))) +
+		", nlwps=" + u10(value(e.u32(pi[120:124]))) + ", lwp=" + u10(value(e.u32(pi[156:160]))) +
+		" (signal " + u10(value(e.u32(pi[8:12]))) + "/code " + u10(value(e.u32(pi[12:16]))) + ")")
 	e.flags |= elfDidCore
 	return true
 }
@@ -431,7 +431,7 @@ func (e *elfState) freebsdCore(n *elfNote, data []byte, doff int) bool {
 	}
 	pidoff := argoff + 81 + 2
 	if doff+pidoff+4 <= len(data) {
-		e.printf(", pid=" + strconv.FormatUint(uint64(e.u32(data[doff+pidoff:])), 10))
+		e.printf(", pid=" + strconv.FormatUint(value(e.u32(data[doff+pidoff:])), 10))
 	}
 	e.flags |= elfDidCore
 	return false
@@ -547,14 +547,14 @@ func (e *elfState) auxvNote(n *elfNote) bool { // note
 			}
 			continue
 		}
-		e.printf(", " + tag + ": " + strconv.FormatInt(extend(val, 32, true), 10))
+		e.printf(", " + tag + ": " + strconv.FormatInt(extend(value(val), 32, true), 10))
 	}
 	return true
 }
 
 // stringAt is get_string_on_virtaddr: the printable NUL-terminated string
 // at a virtual address, located through the core's program headers.
-func (e *elfState) stringAt(virtaddr uint64) (string, bool) {
+func (e *elfState) stringAt(virtaddr in64) (string, bool) {
 	if !invariant.Check(e.phNum >= 0, "program header count non-negative") {
 		e.s.truncate(TruncInvariant)
 		return "", false
@@ -573,8 +573,9 @@ func (e *elfState) stringAt(virtaddr uint64) (string, bool) {
 		if e.fsize >= 0 && offInt(ph.offset) > e.fsize {
 			continue
 		}
-		if virtaddr >= ph.vaddr && virtaddr < ph.vaddr+ph.filesz {
-			return e.printableAt(offInt(ph.offset + (virtaddr - ph.vaddr)))
+		// file 5.48 forms both sums in unsigned 64 bits and lets them wrap.
+		if virtaddr >= ph.vaddr && virtaddr < inWrapAdd(ph.vaddr, ph.filesz) {
+			return e.printableAt(offInt(inWrapAdd(ph.offset, inWrapSub(virtaddr, ph.vaddr))))
 		}
 	}
 	return "", false
@@ -597,7 +598,7 @@ func (e *elfState) printableAt(at int64) (string, bool) {
 	return string(buf[:n]), n > 0
 }
 
-func auxvTag(typ uint64) (string, bool) {
+func auxvTag(typ in64) (string, bool) {
 	switch typ {
 	case 31:
 		return "execfn", true
@@ -647,7 +648,7 @@ func (e *elfState) capSection(st *shdrState, sh *elfShdr) bool { // sectionState
 		case 2:
 			st.capSF1 |= val
 		default:
-			e.printf(", with unknown capability 0x" + strconv.FormatUint(tag, 16) + " = 0x" + strconv.FormatUint(val, 16))
+			e.printf(", with unknown capability 0x" + strconv.FormatUint(value(tag), 16) + " = 0x" + strconv.FormatUint(value(val), 16))
 			st.nbadcap++
 			if st.nbadcap > 3 {
 				return true
@@ -677,12 +678,12 @@ func (e *elfState) capabilities(st *shdrState) { // sectionState
 		}
 	}
 	if rest := st.capSF1 &^ 0x03; rest != 0 {
-		e.printf(", with unknown software capability 0x" + strconv.FormatUint(rest, 16))
+		e.printf(", with unknown software capability 0x" + strconv.FormatUint(value(rest), 16))
 	}
 }
 
 // hardwareCaps names the hardware capability bits for the machine.
-func (e *elfState) hardwareCaps(hw uint64) { // hwCaps
+func (e *elfState) hardwareCaps(hw in64) { // hwCaps
 	if !invariant.Check(hw != 0, "capabilities present") {
 		e.s.truncate(TruncInvariant)
 		return
@@ -690,7 +691,7 @@ func (e *elfState) hardwareCaps(hw uint64) { // hwCaps
 	e.printf(", uses")
 	names := capNames(e.machine)
 	if names == nil {
-		e.printf(" hardware capability 0x" + strconv.FormatUint(hw, 16))
+		e.printf(" hardware capability 0x" + strconv.FormatUint(value(hw), 16))
 		return
 	}
 	for i := range names {
@@ -700,13 +701,13 @@ func (e *elfState) hardwareCaps(hw uint64) { // hwCaps
 		}
 	}
 	if hw != 0 {
-		e.printf(" unknown hardware capability 0x" + strconv.FormatUint(hw, 16))
+		e.printf(" unknown hardware capability 0x" + strconv.FormatUint(value(hw), 16))
 	}
 }
 
 // capNames is cap_desc_sparc or cap_desc_386 by bit position; nil for
 // other machines.
-func capNames(machine uint16) []string {
+func capNames(machine in16) []string {
 	switch machine {
 	case emSparc, emSparcPlu, emSparcV9:
 		return []string{"MUL32", "DIV32", "FSMULD", "V8PLUS", "POPC", "VIS", "VIS2", "ASI_BLK_INIT",

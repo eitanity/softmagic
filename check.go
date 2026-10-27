@@ -10,7 +10,6 @@ import (
 	"code.eitanity.com/softmagic/internal/invariant"
 
 	"bytes"
-	"encoding/binary"
 	"math"
 )
 
@@ -21,23 +20,23 @@ func (s *scan) magicCheck(m *record, f *frame) bool { // rule
 		s.truncate(TruncInvariant)
 		return false
 	}
-	l := binary.LittleEndian.Uint64(m.value[0:8]) // lineValue
-	var v uint64                                  // fileValue
+	l := dbLE64(m.value[0:8]) // lineValue
+	var v uint64              // fileValue
 	switch {
 	case m.typ == tByte:
 		v = uint64(s.value[0])
 	case isWidth2(m.typ):
-		v = uint64(binary.LittleEndian.Uint16(s.value[:]))
+		v = value(le16(s.value[:]))
 	case isWidth4(m.typ) && !isFloatType(m.typ):
-		v = uint64(binary.LittleEndian.Uint32(s.value[:]))
+		v = value(le32(s.value[:]))
 	case isWidth8(m.typ) && !isDoubleType(m.typ), m.typ == tOffset:
-		v = binary.LittleEndian.Uint64(s.value[:])
+		v = value(le64(s.value[:]))
 	case isFloatType(m.typ):
-		return compareFloat(m.reln, widenFloat32(binary.LittleEndian.Uint32(m.value[0:4])),
-			widenFloat32(binary.LittleEndian.Uint32(s.value[:])))
+		return compareFloat(m.reln, widenFloat32(dbLE32(m.value[0:4])),
+			widenFloat32(floatBits32(le32(s.value[:]))))
 	case isDoubleType(m.typ):
-		return compareFloat(m.reln, math.Float64frombits(binary.LittleEndian.Uint64(m.value[0:8])),
-			math.Float64frombits(binary.LittleEndian.Uint64(s.value[:])))
+		return compareFloat(m.reln, math.Float64frombits(dbLE64(m.value[0:8])),
+			math.Float64frombits(value(le64(s.value[:]))))
 	case m.typ == tDefault || m.typ == tClear:
 		l, v = 0, 0
 	case m.typ == tString || m.typ == tPString || m.typ == tOctal:
@@ -49,7 +48,7 @@ func (s *scan) magicCheck(m *record, f *frame) bool { // rule
 	case m.typ == tRegex:
 		l, v = 0, s.regexCheck(f)
 	case m.typ == tUse:
-		return binary.LittleEndian.Uint64(s.value[0:8]) != 0
+		return value(le64(s.value[0:8])) != 0
 	case m.typ == tName || m.typ == tIndirect:
 		return true
 	case m.typ == tDer:

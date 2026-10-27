@@ -93,24 +93,24 @@ func (s *scan) mconvert(m *record, flip bool) bool { // magicLine
 	case tByte:
 		return s.cvtInt(m, uint64(v[0]), 8)
 	case tShort, tMSDOSDate, tMSDOSTime, tLeShort, tLeMSDOSDate, tLeMSDOSTime:
-		return s.cvtInt(m, uint64(binary.LittleEndian.Uint16(v)), 16)
+		return s.cvtInt(m, value(le16(v)), 16)
 	case tLong, tDate, tLDate, tLeLong, tLeDate, tLeLDate:
-		return s.cvtInt(m, uint64(binary.LittleEndian.Uint32(v)), 32)
+		return s.cvtInt(m, value(le32(v)), 32)
 	case tQuad, tQDate, tQLDate, tQWDate, tOffset, tLeQuad, tLeQDate, tLeQLDate, tLeQWDate:
-		return s.cvtInt(m, binary.LittleEndian.Uint64(v), 64)
+		return s.cvtInt(m, value(le64(v)), 64)
 	case tString, tBeString16, tLeString16, tOctal:
 		v[maxString-1] = 0
 		return true
 	case tPString:
 		return s.cvtPString(m)
 	case tBeShort, tBeMSDOSDate, tBeMSDOSTime:
-		return s.cvtInt(m, uint64(binary.BigEndian.Uint16(v)), 16)
+		return s.cvtInt(m, value(be16(v)), 16)
 	case tBeLong, tBeDate, tBeLDate:
-		return s.cvtInt(m, uint64(binary.BigEndian.Uint32(v)), 32)
+		return s.cvtInt(m, value(be32(v)), 32)
 	case tBeQuad, tBeQDate, tBeQLDate, tBeQWDate:
-		return s.cvtInt(m, binary.BigEndian.Uint64(v), 64)
+		return s.cvtInt(m, value(be64(v)), 64)
 	case tMeLong, tMeDate, tMeLDate:
-		return s.cvtInt(m, uint64(middleEndian32(v)), 32)
+		return s.cvtInt(m, value(me32(v)), 32)
 	default:
 		return s.mconvertFloat(m, t)
 	}
@@ -126,17 +126,17 @@ func (s *scan) mconvertFloat(m *record, t fileType) bool { // magicLine
 	v := s.value[:] // value
 	switch t {
 	case tFloat:
-		return s.cvtFloat(m, binary.LittleEndian.Uint32(v))
+		return s.cvtFloat(m, floatBits32(le32(v)))
 	case tBeFloat:
-		return s.cvtFloat(m, binary.BigEndian.Uint32(v))
+		return s.cvtFloat(m, floatBits32(be32(v)))
 	case tLeFloat:
-		return s.cvtFloat(m, binary.LittleEndian.Uint32(v))
+		return s.cvtFloat(m, floatBits32(le32(v)))
 	case tDouble:
-		return s.cvtDouble(m, binary.LittleEndian.Uint64(v))
+		return s.cvtDouble(m, value(le64(v)))
 	case tBeDouble:
-		return s.cvtDouble(m, binary.BigEndian.Uint64(v))
+		return s.cvtDouble(m, value(be64(v)))
 	case tLeDouble:
-		return s.cvtDouble(m, binary.LittleEndian.Uint64(v))
+		return s.cvtDouble(m, value(le64(v)))
 	case tRegex, tSearch, tDefault, tClear, tName, tUse, tDer, tGUID, tLeGUID, tBeGUID:
 		return true
 	default:
@@ -324,13 +324,13 @@ func pstringLength(flags uint32, b []byte) int { // lengthPrefix
 	case pstring1LE:
 		n = int(b[0])
 	case pstring2LE:
-		n = int(binary.LittleEndian.Uint16(b))
+		n = inInt(le16(b))
 	case pstring2BE:
-		n = int(binary.BigEndian.Uint16(b))
+		n = inInt(be16(b))
 	case pstring4LE:
-		n = intFromU32(binary.LittleEndian.Uint32(b))
+		n = inInt(le32(b))
 	case pstring4BE:
-		n = intFromU32(binary.BigEndian.Uint32(b))
+		n = inInt(be32(b))
 	default:
 		return 0
 	}

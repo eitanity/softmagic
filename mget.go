@@ -497,23 +497,23 @@ func (s *scan) indirectLHS(inType fileType, sgn bool) (int64, bool) {
 	case tByte:
 		return extend(uint64(v[0]), 8, sgn), true
 	case tShort, tLeShort:
-		return extend(uint64(binary.LittleEndian.Uint16(v)), 16, sgn), true
+		return extend(value(le16(v)), 16, sgn), true
 	case tBeShort:
-		return extend(uint64(binary.BigEndian.Uint16(v)), 16, sgn), true
+		return extend(value(be16(v)), 16, sgn), true
 	case tLong, tLeLong:
-		return extend(uint64(binary.LittleEndian.Uint32(v)), 32, sgn), true
+		return extend(value(le32(v)), 32, sgn), true
 	case tLeID3:
-		return extend(uint64(id3Length(binary.LittleEndian.Uint32(v))), 32, sgn), true
+		return extend(id3Length(le32(v)), 32, sgn), true
 	case tBeLong:
-		return extend(uint64(binary.BigEndian.Uint32(v)), 32, sgn), true
+		return extend(value(be32(v)), 32, sgn), true
 	case tBeID3:
-		return extend(uint64(id3Length(binary.BigEndian.Uint32(v))), 32, sgn), true
+		return extend(id3Length(be32(v)), 32, sgn), true
 	case tMeLong:
-		return extend(uint64(middleEndian32(v)), 32, sgn), true
+		return extend(value(me32(v)), 32, sgn), true
 	case tLeQuad:
-		return extend(binary.LittleEndian.Uint64(v), 64, sgn), true
+		return extend(value(le64(v)), 64, sgn), true
 	case tBeQuad:
-		return extend(binary.BigEndian.Uint64(v), 64, sgn), true
+		return extend(value(be64(v)), 64, sgn), true
 	case tOctal:
 		n, _, _ := strtoull(v, 0, 8)
 		return extend(n, 64, sgn), true
@@ -541,19 +541,19 @@ func (s *scan) readIndirectAdjust(m *record, f *frame, win []byte, at int64, sgn
 	case tByte:
 		return extend(uint64(b[0]), 8, sgn), true
 	case tShort, tLeShort:
-		return extend(uint64(binary.LittleEndian.Uint16(b)), 16, sgn), true
+		return extend(value(le16(b)), 16, sgn), true
 	case tBeShort:
-		return extend(uint64(binary.BigEndian.Uint16(b)), 16, sgn), true
+		return extend(value(be16(b)), 16, sgn), true
 	case tLong, tLeLong, tLeID3:
-		return extend(uint64(binary.LittleEndian.Uint32(b)), 32, sgn), true
+		return extend(value(le32(b)), 32, sgn), true
 	case tBeLong, tBeID3:
-		return extend(uint64(binary.BigEndian.Uint32(b)), 32, sgn), true
+		return extend(value(be32(b)), 32, sgn), true
 	case tMeLong:
-		return extend(uint64(middleEndian32(b)), 32, sgn), true
+		return extend(value(me32(b)), 32, sgn), true
 	case tLeQuad:
-		return extend(binary.LittleEndian.Uint64(b), 64, sgn), true
+		return extend(value(le64(b)), 64, sgn), true
 	case tBeQuad:
-		return extend(binary.BigEndian.Uint64(b), 64, sgn), true
+		return extend(value(be64(b)), 64, sgn), true
 	case tOctal:
 		n, _, _ := strtoull(s.value[:], 0, 8)
 		return extend(n, 64, sgn), true
@@ -597,14 +597,10 @@ func int64FromBits(v uint64) int64 {
 	return int64(v & math.MaxInt64)
 }
 
-// id3Length is cvt_id3: four 7-bit groups.
-func id3Length(v uint32) uint32 {
-	return (v & 0x7f) | ((v >> 8) & 0x7f << 7) | ((v >> 16) & 0x7f << 14) | ((v >> 24) & 0x7f << 21)
-}
-
-// middleEndian32 is the PDP-11 word order: bytes 1 0 3 2.
-func middleEndian32(b []byte) uint32 {
-	return uint32(b[1])<<24 | uint32(b[0])<<16 | uint32(b[3])<<8 | uint32(b[2])
+// id3Length is cvt_id3: four 7-bit groups, below 2^28.
+func id3Length(v in32) uint64 {
+	w := value(v) // word
+	return (w & 0x7f) | ((w >> 8) & 0x7f << 7) | ((w >> 16) & 0x7f << 14) | ((w >> 24) & 0x7f << 21)
 }
 
 // doOps combines the indirect value with the adjustment as do_ops does,

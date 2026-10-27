@@ -8,8 +8,6 @@
 package softmagic
 
 import (
-	"encoding/binary"
-
 	"code.eitanity.com/softmagic/internal/invariant"
 )
 
@@ -237,8 +235,8 @@ func detectSIMH(buf []byte) builtinResult {
 
 // simhLen is getlen: a little-endian record length whose bits 24-27 must
 // be clear; odd lengths round up; 0xffffffff is end of medium.
-func simhLen(buf []byte, i int) (n uint32, ok bool) {
-	n = binary.LittleEndian.Uint32(buf[i:])
+func simhLen(buf []byte, i int) (n in32, ok bool) {
+	n = le32(buf[i:])
 	if n == 0xffffffff {
 		return n, true
 	}
@@ -247,7 +245,7 @@ func simhLen(buf []byte, i int) (n uint32, ok bool) {
 	}
 	n &= 0x00ffffff
 	if n&1 != 0 {
-		n++
+		return inAdd(n, 1) // below 2^24, so it cannot overflow
 	}
 	return n, true
 }
@@ -279,7 +277,7 @@ func simhParse(buf []byte) bool {
 }
 
 // frame handles one length word: a tapemark, or a data record.
-func (st *simhState) frame(buf []byte, nbytes uint32) (stop, ok bool) {
+func (st *simhState) frame(buf []byte, nbytes in32) (stop, ok bool) {
 	if !invariant.Check(st.i >= 0 && st.i <= len(buf), "cursor within the input") {
 		return false, false
 	}
@@ -306,15 +304,15 @@ type simhState struct {
 // stop is true when the input ends inside it. The length is up to
 // 0xffffffff (end of medium before any record), so it is compared in
 // int64 and becomes an int only once it is known to lie within buf.
-func (st *simhState) record(buf []byte, nbytes uint32) (stop, ok bool) {
+func (st *simhState) record(buf []byte, nbytes in32) (stop, ok bool) {
 	if !invariant.Check(nbytes > 0 && st.i >= 0 && st.i <= len(buf)-4, "record length positive and cursor on a length word") {
 		return false, false
 	}
-	if int64(nbytes)+4 > int64(len(buf)-st.i-4) {
+	if inInt64(nbytes)+4 > int64(len(buf)-st.i-4) {
 		st.past = true
 		return true, true
 	}
-	n := intFromU32(nbytes) // recordLength
+	n := inInt(nbytes) // recordLength
 	cbytes, ok := simhLen(buf, st.i+4+n)
 	if !ok || cbytes != nbytes {
 		return false, false

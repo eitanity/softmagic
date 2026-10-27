@@ -12,7 +12,6 @@ package softmagic
 import (
 	"code.eitanity.com/softmagic/internal/invariant"
 
-	"encoding/binary"
 	"math"
 	"strconv"
 	"time"
@@ -32,19 +31,19 @@ func (s *scan) mprint(m *record, f *frame) { // rule
 	case m.typ == tByte:
 		s.printInt(m, desc, uint64(v[0]), 8)
 	case m.typ == tShort || m.typ == tBeShort || m.typ == tLeShort:
-		s.printInt(m, desc, uint64(binary.LittleEndian.Uint16(v)), 16)
+		s.printInt(m, desc, value(le16(v)), 16)
 	case m.typ == tLong || m.typ == tBeLong || m.typ == tLeLong || m.typ == tMeLong:
-		s.printInt(m, desc, uint64(binary.LittleEndian.Uint32(v)), 32)
+		s.printInt(m, desc, value(le32(v)), 32)
 	case m.typ == tQuad || m.typ == tBeQuad || m.typ == tLeQuad || m.typ == tOffset:
-		s.printInt(m, desc, binary.LittleEndian.Uint64(v), 64)
+		s.printInt(m, desc, value(le64(v)), 64)
 	case m.typ == tString || m.typ == tPString || m.typ == tBeString16 || m.typ == tLeString16:
 		s.printString(m, desc)
 	case isDateType(m.typ):
 		s.printfStr(desc, []byte(fmtDateTime(m.typ, v)))
 	case isFloatType(m.typ):
-		s.printFloat(desc, widenFloat32(binary.LittleEndian.Uint32(v)))
+		s.printFloat(desc, widenFloat32(floatBits32(le32(v))))
 	case isDoubleType(m.typ):
-		s.printFloat(desc, math.Float64frombits(binary.LittleEndian.Uint64(v)))
+		s.printFloat(desc, math.Float64frombits(value(le64(v))))
 	case m.typ == tSearch || m.typ == tRegex:
 		s.printSearch(m, desc)
 	case m.typ == tDefault || m.typ == tClear:
@@ -70,9 +69,9 @@ func (s *scan) mprintOther(m *record, desc string) { // rule
 	case tBeGUID:
 		s.printfStr(desc, []byte(guidString(v, true)))
 	case tMSDOSDate, tBeMSDOSDate, tLeMSDOSDate:
-		s.printfStr(desc, []byte(fmtMSDOSDate(binary.LittleEndian.Uint16(v))))
+		s.printfStr(desc, []byte(fmtMSDOSDate(le16(v))))
 	case tMSDOSTime, tBeMSDOSTime, tLeMSDOSTime:
-		s.printfStr(desc, []byte(fmtMSDOSTime(binary.LittleEndian.Uint16(v))))
+		s.printfStr(desc, []byte(fmtMSDOSTime(le16(v))))
 	case tOctal:
 		s.printfStr(desc, []byte(fmtNumber(m.valueBytes(), 8)))
 	default:
@@ -294,20 +293,20 @@ func guidString(v []byte, be bool) string { // guidImage
 	if !invariant.Check(len(v) >= 16, "GUID image complete") {
 		return ""
 	}
-	d1 := binary.LittleEndian.Uint32(v[0:4]) // data1
-	d2 := binary.LittleEndian.Uint16(v[4:6]) // data2
-	d3 := binary.LittleEndian.Uint16(v[6:8]) // data3
+	d1 := le32(v[0:4]) // data1
+	d2 := le16(v[4:6]) // data2
+	d3 := le16(v[6:8]) // data3
 	if be {
-		d1 = binary.BigEndian.Uint32(v[0:4])
-		d2 = binary.BigEndian.Uint16(v[4:6])
-		d3 = binary.BigEndian.Uint16(v[6:8])
+		d1 = be32(v[0:4])
+		d2 = be16(v[4:6])
+		d3 = be16(v[6:8])
 	}
 	var b [36]byte // text
-	hexUpper(b[0:8], uint64(d1))
+	hexUpper(b[0:8], value(d1))
 	b[8] = '-'
-	hexUpper(b[9:13], uint64(d2))
+	hexUpper(b[9:13], value(d2))
 	b[13] = '-'
-	hexUpper(b[14:18], uint64(d3))
+	hexUpper(b[14:18], value(d3))
 	b[18] = '-'
 	hexUpper(b[19:21], uint64(v[8]))
 	hexUpper(b[21:23], uint64(v[9]))
@@ -340,15 +339,15 @@ func fmtDateTime(t fileType, v []byte) string { // dateImage
 	local, windows := false, false
 	switch t {
 	case tDate, tBeDate, tLeDate, tMeDate:
-		secs = int64(binary.LittleEndian.Uint32(v))
+		secs = inInt64(le32(v))
 	case tLDate, tBeLDate, tLeLDate, tMeLDate:
-		secs, local = int64(binary.LittleEndian.Uint32(v)), true
+		secs, local = inInt64(le32(v)), true
 	case tQDate, tBeQDate, tLeQDate:
-		secs = int64FromBits(binary.LittleEndian.Uint64(v))
+		secs = int64FromBits(value(le64(v)))
 	case tQLDate, tBeQLDate, tLeQLDate:
-		secs, local = int64FromBits(binary.LittleEndian.Uint64(v)), true
+		secs, local = int64FromBits(value(le64(v))), true
 	default: // the qwdate family
-		secs, windows = int64FromBits(binary.LittleEndian.Uint64(v)), true
+		secs, windows = int64FromBits(value(le64(v))), true
 	}
 	if windows {
 		// file_fmtdatetime converts a FILETIME through
@@ -370,28 +369,28 @@ func fmtDateTime(t fileType, v []byte) string { // dateImage
 }
 
 // fmtMSDOSDate is file_fmtdate: strftime "%b %d %Y" of a DOS date.
-func fmtMSDOSDate(v uint16) string { // dosDate
+func fmtMSDOSDate(v in16) string { // dosDate
 	if !invariant.Check(v>>9 <= 127, "year field within seven bits") {
 		return ""
 	}
-	day := int(v & 0x1f)
-	mon := int((v>>5)&0xf) - 1
+	day := inInt(v & 0x1f)
+	mon := inInt((v>>5)&0xf) - 1
 	if mon < 0 || mon > 11 {
 		mon = 0
 	}
-	year := int(v>>9) + 1980
+	year := inInt(v>>9) + 1980
 	tm := time.Date(year, time.Month(mon+1), 1, 0, 0, 0, 0, time.UTC)
 	return tm.Format("Jan") + " " + pad2(day) + " " + strconv.Itoa(year)
 }
 
 // fmtMSDOSTime is file_fmttime: strftime "%T" of a DOS time.
-func fmtMSDOSTime(v uint16) string {
+func fmtMSDOSTime(v in16) string {
 	if !invariant.Check(v>>11 <= 31, "hour field within five bits") {
 		return ""
 	}
-	sec := int(v&0x1f) * 2
-	minute := int((v >> 5) & 0x3f)
-	hour := int(v >> 11)
+	sec := inInt(v&0x1f) * 2
+	minute := inInt((v >> 5) & 0x3f)
+	hour := inInt(v >> 11)
 	return pad2(hour) + ":" + pad2(minute) + ":" + pad2(sec)
 }
 

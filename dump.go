@@ -9,7 +9,6 @@
 package softmagic
 
 import (
-	"encoding/binary"
 	"math"
 	"strconv"
 	"strings"
@@ -140,21 +139,21 @@ func dumpValue(b *strings.Builder, r *lineRec) { // builder
 	v := r.value[:] // value
 	switch r.typ {
 	case tByte, tShort, tLong, tLeShort, tLeLong, tMeLong, tBeShort, tBeLong, tIndirect:
-		b.WriteString(strconv.FormatInt(int64(wrapInt32(int64(binary.LittleEndian.Uint32(v)))), 10)) // %d of int32
+		b.WriteString(strconv.FormatInt(int64(wrapInt32(int64(dbLE32(v)))), 10)) // %d of int32
 	case tBeQuad, tLeQuad, tQuad, tOffset:
-		b.WriteString(strconv.FormatInt(int64FromBits(binary.LittleEndian.Uint64(v)), 10))
+		b.WriteString(strconv.FormatInt(int64FromBits(dbLE64(v)), 10))
 	case tPString, tString, tRegex, tBeString16, tLeString16, tSearch:
 		showStr(b, v[:r.vallen])
 	case tFloat, tBeFloat, tLeFloat:
-		b.WriteString(upper(formatCFloat(widenFloat32(binary.LittleEndian.Uint32(v)), 'g', 6)))
+		b.WriteString(upper(formatCFloat(widenFloat32(dbLE32(v)), 'g', 6)))
 	case tDouble, tBeDouble, tLeDouble:
-		b.WriteString(upper(formatCFloat(math.Float64frombits(binary.LittleEndian.Uint64(v)), 'g', 6)))
+		b.WriteString(upper(formatCFloat(math.Float64frombits(dbLE64(v)), 'g', 6)))
 	case tLeVarint, tBeVarint:
 		b.WriteString(strconv.FormatInt(int64FromBits(varint(v, r.typ == tLeVarint)), 10))
 	case tMSDOSDate, tBeMSDOSDate, tLeMSDOSDate:
-		b.WriteString(fmtMSDOSDate(binary.LittleEndian.Uint16(v)) + ",")
+		b.WriteString(fmtMSDOSDate(in16(dbLE16(v))) + ",")
 	case tMSDOSTime, tBeMSDOSTime, tLeMSDOSTime:
-		b.WriteString(fmtMSDOSTime(binary.LittleEndian.Uint16(v)) + ",")
+		b.WriteString(fmtMSDOSTime(in16(dbLE16(v))) + ",")
 	case tOctal:
 		b.WriteString(fmtNumber(v, 8))
 	case tDefault:

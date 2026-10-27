@@ -68,7 +68,7 @@ func integerLiteral(r *record, lit []byte) uint8 {
 	if !invariant.Check(len(lit) >= 8, "literal buffer holds a quad") {
 		return 0
 	}
-	v := binary.LittleEndian.Uint64(r.value[0:8]) // value
+	v := dbLE64(r.value[0:8]) // value
 	switch r.typ {
 	case tByte:
 		lit[0] = low8(v)

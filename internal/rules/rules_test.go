@@ -748,6 +748,119 @@ func smallByOperator(info *types.Info, e ast.Expr) bool { // expr
 	return exact && v >= 0 && v <= math.MaxInt32
 }
 
+// TestRule7InputArithmetic keeps integers read from the input inside
+// their defined types: outside input.go and bits.go, no code reads an
+// integer with encoding/binary, applies + - * << ++ or -- to an input
+// type, or converts one to any type but a wider input type. Combining
+// and converting them is left to input.go's helpers, which report
+// overflow or wrap where file 5.48 wraps.
+func TestRule7InputArithmetic(t *testing.T) {
+	fset, pkgs := loadModule(t)
+	for _, p := range pkgs {
+		if p.path != modulePath {
+			continue
+		}
+		for i, f := range p.files { // file
+			if n := p.names[i]; n == "bits.go" || n == "input.go" || strings.HasSuffix(n, "_test.go") {
+				continue
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				if msg := inputMisuse(p.info, n); msg != "" {
+					t.Errorf("rule 7: %s at %s", msg, fset.Position(n.Pos()))
+				}
+				return true
+			})
+		}
+	}
+}
+
+// inputMisuse is what TestRule7InputArithmetic rejects in n, or "".
+func inputMisuse(info *types.Info, n ast.Node) string { // node
+	switch e := n.(type) {
+	case *ast.BinaryExpr:
+		if growsOrWraps(e.Op) && (inputWidth(info, e.X) > 0 || inputWidth(info, e.Y) > 0) {
+			return e.Op.String() + " on an input integer"
+		}
+	case *ast.AssignStmt:
+		if growsOrWraps(e.Tok) && inputWidth(info, e.Lhs[0]) > 0 {
+			return e.Tok.String() + " on an input integer"
+		}
+	case *ast.IncDecStmt:
+		if inputWidth(info, e.X) > 0 {
+			return e.Tok.String() + " on an input integer"
+		}
+	case *ast.CallExpr:
+		return inputCallMisuse(info, e)
+	default:
+	}
+	return ""
+}
+
+// inputCallMisuse rejects a binary.ByteOrder integer read and a
+// conversion out of an input type.
+func inputCallMisuse(info *types.Info, call *ast.CallExpr) string { // callExpr
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok { // selector
+		if fn, isFunc := info.Uses[sel.Sel].(*types.Func); isFunc && fn.Pkg() != nil && fn.Pkg().Path() == "encoding/binary" &&
+			(fn.Name() == "Uint16" || fn.Name() == "Uint32" || fn.Name() == "Uint64") {
+			return "integer read with encoding/binary; use input.go's readers"
+		}
+	}
+	fn, ok := info.Types[call.Fun] // conversionType
+	if !ok || !fn.IsType() || len(call.Args) != 1 {
+		return ""
+	}
+	from := inputWidth(info, call.Args[0])
+	if from == 0 {
+		return ""
+	}
+	if to := typeInputWidth(fn.Type); to >= from {
+		return ""
+	}
+	return "conversion out of an input integer type; use input.go's helpers"
+}
+
+// growsOrWraps reports whether op can take an unsigned value past its
+// range in either direction.
+func growsOrWraps(op token.Token) bool {
+	switch op {
+	case token.ADD, token.SUB, token.MUL, token.SHL,
+		token.ADD_ASSIGN, token.SUB_ASSIGN, token.MUL_ASSIGN, token.SHL_ASSIGN:
+		return true
+	default:
+		return false
+	}
+}
+
+// inputWidth is the width of e's input type, 0 when it has none or is
+// a constant.
+func inputWidth(info *types.Info, e ast.Expr) int { // expr
+	tv := info.Types[e] // typeAndValue
+	if tv.Type == nil || tv.Value != nil {
+		return 0
+	}
+	return typeInputWidth(tv.Type)
+}
+
+// typeInputWidth is t's width when t is one of the defined types of
+// integers read from the input file, which input.go declares with the
+// helpers that read, combine and convert them; else 0.
+func typeInputWidth(t types.Type) int { // typ
+	named, ok := t.(*types.Named)
+	if !ok || named.Obj().Pkg() == nil || named.Obj().Pkg().Path() != modulePath {
+		return 0
+	}
+	switch named.Obj().Name() {
+	case "in16":
+		return 16
+	case "in32":
+		return 32
+	case "in64":
+		return 64
+	default:
+		return 0
+	}
+}
+
 // TestRule8BuildTagsAndImports allows one build tag and forbids the
 // packages that stand in for a preprocessor.
 func TestRule8BuildTagsAndImports(t *testing.T) {

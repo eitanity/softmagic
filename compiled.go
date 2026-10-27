@@ -239,7 +239,7 @@ func (d *dec) u16() uint16 {
 	if !d.need(2) {
 		return 0
 	}
-	v := binary.LittleEndian.Uint16(d.b[d.i:])
+	v := dbLE16(d.b[d.i:])
 	d.i += 2
 	return v
 }
@@ -248,7 +248,7 @@ func (d *dec) u32() uint32 {
 	if !d.need(4) {
 		return 0
 	}
-	v := binary.LittleEndian.Uint32(d.b[d.i:])
+	v := dbLE32(d.b[d.i:])
 	d.i += 4
 	return v
 }
@@ -502,16 +502,15 @@ func (d *dec) scalars(r *record) int { // record
 	}
 	b := d.b[d.i : d.i+recordScalarSize] // scalarBytes
 	d.i += recordScalarSize
-	le := binary.LittleEndian // littleEndian
-	r.flag = le.Uint16(b[0:2])
+	r.flag = dbLE16(b[0:2])
 	r.contLevel, r.factor, r.reln, r.vallen = b[2], b[3], b[4], b[5]
 	r.typ, r.inType = fileType(b[6]), fileType(b[7])
 	r.inOp, r.maskOp, r.dummy, r.factorOp = b[8], b[9], b[10], b[11]
-	r.offset = wrapInt32(int64(le.Uint32(b[12:16])))
-	r.inOffset = wrapInt32(int64(le.Uint32(b[16:20])))
-	r.lineno = le.Uint32(b[20:24])
-	r.maskOrStr = le.Uint64(b[24:32])
-	return int(le.Uint16(b[32:34]))
+	r.offset = wrapInt32(int64(dbLE32(b[12:16])))
+	r.inOffset = wrapInt32(int64(dbLE32(b[16:20])))
+	r.lineno = dbLE32(b[20:24])
+	r.maskOrStr = dbLE64(b[24:32])
+	return int(dbLE16(b[32:34]))
 }
 
 // checkSets verifies the entry tables index the records consistently,
