@@ -98,7 +98,7 @@ func (s *scan) run() bool {
 		return false
 	}
 	rootResult := false
-	for steps := 0; steps < maxSteps && s.nframes > 0 && s.truncated != TruncTime && s.abort == ""; steps++ {
+	for steps := 0; steps < maxSteps && s.nframes > 0 && !s.stopped && s.abort == ""; steps++ {
 		f := &s.frames[s.nframes-1] // frame
 		if f.idx >= f.count {
 			if s.cont && f.phase == phaseCont && !f.ended {
@@ -113,8 +113,8 @@ func (s *scan) run() bool {
 			s.stepCont(f)
 		}
 	}
-	if s.nframes > 0 && s.truncated != TruncTime && s.abort == "" {
-		s.truncate(TruncTime) // the step budget ran out
+	if s.nframes > 0 && !s.stopped && s.abort == "" {
+		s.stop() // the step budget ran out
 	}
 	if s.abort != "" {
 		s.nframes = 0 // the reference returns -1 through every level

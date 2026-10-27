@@ -177,7 +177,7 @@ func TestSearchCandidates(t *testing.T) {
 			region[k] = alphabet[rng.intn(len(alphabet))]
 		}
 		r := rng.intn(30)
-		if got, want := searchFlagged(&m, region, n, r), naiveSearch(&m, region, n, r); got != want {
+		if got, want := (&scan{}).searchFlagged(&m, region, n, r), naiveSearch(&m, region, n, r); got != want {
 			t.Fatalf("value %q flags %#x region %q range %d: got %d, want %d",
 				m.valueBytes(), m.strFlags(), region, r, got, want)
 		}

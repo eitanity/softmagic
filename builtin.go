@@ -31,10 +31,10 @@ func (s *scan) builtins(e encoding) builtinResult { // encoding
 	if r := detectTar(s.buf); r.hit && !s.excluded(CheckTar) {
 		return r
 	}
-	if r := detectJSON(s.buf); r.hit && !s.excluded(CheckJSON) {
+	if r := s.detectJSON(s.buf); r.hit && !s.excluded(CheckJSON) {
 		return r
 	}
-	if r := detectCSV(s.buf, e); r.hit && !s.excluded(CheckCSV) {
+	if r := s.detectCSV(s.buf, e); r.hit && !s.excluded(CheckCSV) {
 		return r
 	}
 	if r := detectSIMH(s.buf); r.hit && !s.excluded(CheckSIMH) {
@@ -124,62 +124,104 @@ const csvLines = 10
 
 // detectCSV is file_is_csv: text whose first lines have a consistent
 // field count greater than one.
-func detectCSV(buf []byte, e encoding) builtinResult {
-	if !e.isText() || !csvParse(buf) {
+func (s *scan) detectCSV(buf []byte, e encoding) builtinResult {
+	if !e.isText() || !s.csvParse(buf) || s.stopped {
 		return builtinResult{}
 	}
 	return builtinResult{desc: "CSV " + e.code() + " text", mime: "text/csv", hit: true}
 }
 
-// csvParse is csv_parse.
-func csvParse(uc []byte) bool { // input
+// csvParse is csv_parse. It charges the scan every workPerPoll bytes and
+// gives up when the scan stops.
+func (s *scan) csvParse(uc []byte) bool { // input
 	if !invariant.Check(uc != nil || len(uc) == 0, "input slice") {
 		return false
 	}
-	nf, tf, nl := 0, 0, 0 // firstLineFields
+	var c csvCounts                 // fieldCounts
+	charged, next := 0, workPerPoll // the cursor when the scan was last and is next charged
 	for i := 0; i < len(uc); i++ {
+		if i >= next {
+			if s.charge(i - charged) {
+				return false
+			}
+			charged, next = i, i+workPerPoll
+		}
 		switch uc[i] {
 		case '"':
-			i = csvEatQuote(uc, i+1) - 1
+			i = s.csvEatQuote(uc, i+1) - 1
 		case ',':
-			nf++
+			c.nf++
 		case '\n':
-			nl++
-			if nl == csvLines {
-				return tf > 1 && tf == nf
+			if ok, done := c.endLine(); done {
+				return ok
 			}
-			switch {
-			case tf == 0 && nf == 0:
-				return false
-			case tf == 0:
-				tf = nf
-			case tf != nf:
-				return false
-			}
-			nf = 0
 		default:
 		}
 	}
-	return tf >= 1 && nl >= 2
+	return c.tf >= 1 && c.nl >= 2
+}
+
+// csvCounts are csv_parse's counts: fields on this line and on the
+// first line, and lines ended.
+type csvCounts struct {
+	nf, tf, nl int
+}
+
+// endLine is csv_parse's newline case. done is true when the lines seen
+// decide, and ok is then the answer.
+func (c *csvCounts) endLine() (ok, done bool) {
+	c.nl++
+	if c.nl == csvLines {
+		return c.tf > 1 && c.tf == c.nf, true
+	}
+	switch {
+	case c.tf == 0 && c.nf == 0:
+		return false, true
+	case c.tf == 0:
+		c.tf = c.nf
+	case c.tf != c.nf:
+		return false, true
+	}
+	c.nf = 0
+	return false, false
 }
 
 // csvEatQuote is eatquote: skip to the end of a quoted field, where a
-// doubled quote is an escape; it returns the index after the field.
-func csvEatQuote(uc []byte, i int) int { // cursor
+// doubled quote is an escape; it returns the index after the field, or
+// the end of the input when the scan stops. A field is scanned
+// workPerPoll bytes at a time, each piece after the first charged before
+// it is scanned.
+func (s *scan) csvEatQuote(uc []byte, i int) int { // cursor
 	if !invariant.Check(i >= 0 && i <= len(uc), "cursor within the input") {
 		return len(uc)
 	}
 	quote := false
-	for ; i < len(uc); i++ {
-		if uc[i] != '"' {
+	for k := 0; k <= len(uc)/workPerPoll && i < len(uc); k++ {
+		piece := uc[:min(len(uc), i+workPerPoll)] // ends at the next charge
+		if k > 0 && s.charge(len(piece)-i) {
+			return len(uc)
+		}
+		var done bool
+		if i, quote, done = csvQuotePiece(piece, i, quote); done {
+			return i
+		}
+	}
+	return len(uc)
+}
+
+// csvQuotePiece is eatquote's loop over piece from i: done is true when
+// the field ends, at the returned index.
+func csvQuotePiece(piece []byte, i int, quote bool) (int, bool, bool) { // cursor
+	for ; i < len(piece); i++ {
+		if piece[i] != '"' {
 			if quote {
-				return i
+				return i, quote, true
 			}
 			continue
 		}
 		quote = !quote
 	}
-	return len(uc)
+	return i, quote, false
 }
 
 // simhTapemarks is SIMH_TAPEMARKS.

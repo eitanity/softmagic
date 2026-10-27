@@ -17,10 +17,21 @@ type textStats struct {
 	backspace         bool
 }
 
-// trimNuls is ascmagic.c's trim_nuls: drop trailing NULs, keeping one byte.
-func trimNuls(buf []byte) int {
-	var n int
-	for n = len(buf); n > 1 && buf[n-1] == 0; n-- {
+// trimNuls is ascmagic.c's trim_nuls: drop trailing NULs, keeping one
+// byte. It goes workPerPoll bytes at a time and charges the scan for
+// each piece it passes, so a window of NULs cannot outlast the deadline;
+// a stopped scan leaves the trim unfinished.
+func (s *scan) trimNuls(buf []byte) int {
+	n := len(buf)
+	for k := 0; k <= len(buf)/workPerPoll; k++ {
+		stop := max(1, n-workPerPoll) // pieceStart
+		z := 0                        // NULs ending the piece
+		for ; z < workPerPoll && z < n-stop && buf[n-1-z] == 0; z++ {
+		}
+		n -= z
+		if n > stop || n <= 1 || s.charge(workPerPoll) {
+			break
+		}
 	}
 	if !invariant.Check(n <= len(buf) && (n >= 1 || len(buf) == 0), "trim keeps at least one byte") {
 		return 0
@@ -37,7 +48,7 @@ func (s *scan) textPhase(looksText bool, e encoding) bool { // encoding
 		s.truncate(TruncInvariant)
 		return false
 	}
-	n := trimNuls(s.buf) // textLength
+	n := s.trimNuls(s.buf) // textLength
 	if n&1 != 0 && len(s.buf)&1 == 0 {
 		n++ // keep the last UTF-16 unit whole
 	}
@@ -46,9 +57,9 @@ func (s *scan) textPhase(looksText bool, e encoding) bool { // encoding
 	}
 	win := s.buf[:n]
 	if n != len(s.buf) || s.excluded(CheckEncoding) {
-		e = classify(win, s.lim.encoding) // file_ascmagic classifies for itself
+		e = s.classify(win, s.lim.encoding) // file_ascmagic classifies for itself
 	}
-	if !e.isText() || trimNuls(win) <= 1 {
+	if !e.isText() || s.trimNuls(win) <= 1 {
 		return false // file_ascmagic_with_encoding trims again and gives up at one byte
 	}
 	utf8Len := s.encodeWindow(win, e)
@@ -62,7 +73,7 @@ func (s *scan) textPhase(looksText bool, e encoding) bool { // encoding
 	if s.mode != modeDesc {
 		return softFound && s.outputOrAnnotated()
 	}
-	st := scanLines(win, e)
+	st := s.scanLines(win, e)
 	s.describeText(e, st)
 	return true
 }
@@ -96,6 +107,9 @@ func (s *scan) encodeWindow(win []byte, e encoding) int {
 		if !ok {
 			break
 		}
+		if chars%workPerPoll == workPerPoll-1 && s.charge(workPerPoll) {
+			return 0
+		}
 		k := encodeUTF8(dst[n:], c)
 		if k == 0 {
 			return 0
@@ -110,8 +124,9 @@ func (s *scan) encodeWindow(win []byte, e encoding) int {
 }
 
 // scanLines is the line-terminator and long-line scan over the decoded
-// characters.
-func scanLines(win []byte, e encoding) textStats {
+// characters. It is charged to the scan every workPerPoll characters and
+// stops early when the scan stops.
+func (s *scan) scanLines(win []byte, e encoding) textStats {
 	if !invariant.Check(e.n <= len(win), "classified length within the window") {
 		return textStats{}
 	}
@@ -122,6 +137,9 @@ func scanLines(win []byte, e encoding) textStats {
 	for i := int64(0); i < int64(len(win)); i++ { // charIndex; a character takes at least one byte
 		c, ok := d.next()
 		if !ok {
+			break
+		}
+		if i%workPerPoll == workPerPoll-1 && s.charge(workPerPoll) {
 			break
 		}
 		seenCR = st.noteChar(c, i, seenCR, &lastLineEnd)

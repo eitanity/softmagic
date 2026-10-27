@@ -150,15 +150,22 @@ func cToUpper(c byte) byte {
 // bytes b for n bytes with the string modifier flags; 0 means equal, and
 // otherwise the (wrapped) difference of the first differing bytes.
 func strncmp(a, b []byte, n, maxlen int, flags uint32) uint64 { // compareLength
+	v, _ := strncmpUsed(a, b, n, maxlen, flags)
+	return v
+}
+
+// strncmpUsed is strncmp that also returns how many bytes of b it read,
+// which whitespace compaction can take past n.
+func strncmpUsed(a, b []byte, n, maxlen int, flags uint32) (uint64, int) { // compareLength
 	if !invariant.Check(n >= 0 && maxlen >= 0, "lengths non-negative") ||
 		!invariant.Check(n <= maxString, "rule string within MAXstring") {
-		return 1
+		return 1, 0
 	}
 	if flags == 0 {
-		return strncmpPlain(a, b, n)
+		return strncmpPlain(a, b, n), n
 	}
 	if flags&(strCompactWhitespace|strCompactOptionalWhitespace) == 0 {
-		return strncmpCase(a, b, n, flags)
+		return strncmpCase(a, b, n, flags), n
 	}
 	ws := flags&(strCompactWhitespace|strCompactOptionalWhitespace) != 0
 	eb := n // compareEnd
@@ -171,16 +178,16 @@ func strncmp(a, b []byte, n, maxlen int, flags uint32) uint64 { // compareLength
 	c := strCursor{a: a, b: b, eb: eb, flags: flags} // cursor
 	for k := 0; k < maxString && k < n; k++ {
 		if c.bi >= eb {
-			return 1
+			return 1, c.bi
 		}
 		if v := c.step(); v != 0 {
-			return v
+			return v, c.bi
 		}
 	}
 	if flags&strFullWord != 0 && c.bi < len(b) && b[c.bi] != 0 && !cIsSpace(b[c.bi]) {
-		return 1
+		return 1, c.bi
 	}
-	return 0
+	return 0, c.bi
 }
 
 // strCursor is the state of a flagged string comparison.
@@ -308,10 +315,12 @@ func (s *scan) searchCheck(m *record, rec int32) uint64 { // searchRule
 	found, _, hit := s.memoGet(key)
 	if !hit {
 		found = -1
-		if idx := searchRun(m, region, slen, rng, limit); idx >= 0 {
+		if idx := s.searchRun(m, region, slen, rng, limit); idx >= 0 {
 			found = smallInt32(idx)
 		}
-		s.memoPut(key, found, 0)
+		if !s.stopped { // a search the scan stopped did not finish
+			s.memoPut(key, found, 0)
+		}
 	}
 	if found < 0 {
 		return 1
@@ -321,21 +330,40 @@ func (s *scan) searchCheck(m *record, rec int32) uint64 { // searchRule
 	return 0
 }
 
-// searchRun finds the value in the region: the offset or -1.
-func searchRun(m *record, region []byte, slen, rng, limit int) int { // searchRule
+// searchRun finds the value in the region: the offset or -1, which it
+// also is when the scan stops during the search.
+func (s *scan) searchRun(m *record, region []byte, slen, rng, limit int) int { // searchRule
 	if !invariant.Check(limit <= len(region), "limit within the region") ||
 		!invariant.Check(slen >= 0 && slen <= maxString, "search string within MAXstring") {
 		return -1
 	}
 	if slen > 0 && m.strFlags() == 0 {
-		return bytes.Index(region[:limit], m.valueBytes())
+		return s.indexCharged(region[:limit], m.valueBytes())
 	}
-	return searchFlagged(m, region, slen, rng)
+	return s.searchFlagged(m, region, slen, rng)
+}
+
+// indexCharged is bytes.Index over region, workPerPoll bytes at a time
+// with the work charged before each piece.
+func (s *scan) indexCharged(region, value []byte) int {
+	if len(value) == 0 {
+		return 0
+	}
+	for start := 0; start < len(region); start += workPerPoll {
+		end := min(len(region), start+workPerPoll+len(value)-1) // pieces overlap by len(value)-1
+		if s.charge(end - start) {
+			return -1
+		}
+		if i := bytes.Index(region[start:end], value); i >= 0 {
+			return start + i
+		}
+	}
+	return -1
 }
 
 // searchFlagged is the position-by-position search for a string with
 // modifier flags; -1 when not found within the range.
-func searchFlagged(m *record, region []byte, slen, rng int) int { // searchRule
+func (s *scan) searchFlagged(m *record, region []byte, slen, rng int) int { // searchRule
 	if !invariant.Check(slen >= 0 && slen <= maxString, "search string within MAXstring") ||
 		!invariant.Check(rng >= 0, "range non-negative") {
 		return -1
@@ -347,24 +375,40 @@ func searchFlagged(m *record, region []byte, slen, rng int) int { // searchRule
 	flags := m.strFlags()
 	value := m.valueBytes()
 	if slen > 0 && !cIsSpace(value[0]) {
-		return searchByCandidate(m, region, slen, tries)
+		return s.searchByCandidate(m, region, slen, tries)
 	}
 	for idx := 0; idx <= len(region) && idx <= tries; idx++ {
 		if slen+idx > len(region) {
 			return -1
 		}
-		if strncmp(value, region[idx:], slen, len(region)-idx, flags) == 0 {
-			return idx
+		if r, done := s.matchAt(value, region, idx, slen, flags, 0); done {
+			return r
 		}
 	}
 	return -1
+}
+
+// matchAt is one position of a flagged search: it compares the value at
+// region[idx:] and charges the scan for the bytes skipped to reach idx
+// and read by the comparison. done is true when the search ends, with
+// idx when the value matches there and -1 when the scan stopped.
+func (s *scan) matchAt(value, region []byte, idx, slen int, flags uint32, skipped int) (int, bool) { // searchRule
+	v, used := strncmpUsed(value, region[idx:], slen, len(region)-idx, flags)
+	switch {
+	case v == 0:
+		return idx, true
+	case s.charge(skipped + used + 1):
+		return -1, true
+	default:
+		return -1, false
+	}
 }
 
 // searchByCandidate is searchFlagged for a value that does not start
 // with whitespace: whatever the flags, strncmp's first step then
 // compares that byte directly under the case rules, so only the
 // positions holding it (in either case the flags allow) are tried.
-func searchByCandidate(m *record, region []byte, slen, tries int) int {
+func (s *scan) searchByCandidate(m *record, region []byte, slen, tries int) int {
 	if !invariant.Check(slen > 0 && slen <= maxString, "search string within MAXstring") ||
 		!invariant.Check(!cIsSpace(m.valueBytes()[0]), "value starts with a non-space byte") ||
 		!invariant.Check(tries >= 0 && tries <= len(region), "tries within the region") {
@@ -393,8 +437,8 @@ func searchByCandidate(m *record, region []byte, slen, tries int) int {
 		if !invariant.Check(firstByteMatches(c1, region[idx], flags), "candidate passes the first-byte rule") {
 			return -1
 		}
-		if strncmp(value, region[idx:], slen, len(region)-idx, flags) == 0 {
-			return idx
+		if r, done := s.matchAt(value, region, idx, slen, flags, j); done {
+			return r
 		}
 	}
 	return -1
@@ -433,7 +477,9 @@ func (s *scan) regexCheck(f *frame) uint64 {
 		if so, eo, ok = s.regexRun(rec); !ok {
 			return s.boolFail("regex line has a compiled pattern")
 		}
-		s.memoPut(key, so, eo)
+		if !s.stopped { // a match the scan stopped did not run
+			s.memoPut(key, so, eo)
+		}
 	}
 	if so < 0 {
 		return 1
@@ -445,8 +491,9 @@ func (s *scan) regexCheck(f *frame) uint64 {
 }
 
 // regexRun evaluates a regex line over the current region: the match's
-// start and end as region offsets, start -1 when there is none. ok is
-// false when the line has no compiled pattern.
+// start and end as region offsets, start -1 when there is none or the
+// scan stops before the match runs. ok is false when the line has no
+// compiled pattern.
 func (s *scan) regexRun(rec int32) (int32, int32, bool) {
 	if !invariant.Check(s.search.valid, "region set") {
 		s.truncate(TruncInvariant)
@@ -465,6 +512,9 @@ func (s *scan) regexRun(rec int32) (int32, int32, bool) {
 		region = region[:nul]
 	}
 	if len(slot.lits) != 0 && !slot.possible(region) {
+		return -1, -1, true
+	}
+	if s.charge(len(region)) {
 		return -1, -1, true
 	}
 	buf := s.rxScratch(2 * len(region))

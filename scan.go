@@ -66,9 +66,12 @@ const (
 	regexScratchSize = 2 * limit16Max
 	// printableMax is the reference's buffer for a printed string.
 	printableMax = 512
-	// timeCheckEvery is how many top-level entries pass between polls of
-	// the context.
-	timeCheckEvery = 64
+	// workPerPoll is how much work passes between polls of the context.
+	// A byte scanned, parsed or copied costs one unit and a top-level
+	// entry costs lineCost, so a run of entries is polled every 64 and a
+	// single long step every 64 KiB it touches.
+	workPerPoll = 1 << 16
+	lineCost    = workPerPoll / 64
 	// maxSteps bounds the matcher loop outright, so the loop has a fixed bound: one
 	// step is one rule line evaluated in one frame. The legitimate maximum
 	// is fifty indirect re-runs of the 25k-line set, under 1.3M; a rule
@@ -278,7 +281,7 @@ type scan struct {
 	outLen           int
 	nseps            int // separators recorded in seps
 	elfStart         int // the ELF text's start in out while tryELF runs, else -1
-	timeCheck        int
+	work             int // units charged since the last poll, below workPerPoll
 	maxRead          int
 	nframes          int
 	maxDepth         int
@@ -297,6 +300,7 @@ type scan struct {
 	seps             [maxSeps]int32 // where each separator starts in out, ascending
 	value            [maxString]byte
 	printedSomething bool
+	stopped          bool // the deadline passed or the step budget ran out: every later step stops
 	needSeparator    bool
 	tailRead         bool // tail holds the file's tail for this call
 	mode             matchMode
@@ -391,7 +395,7 @@ func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) {
 	s.nrules = 0
 	s.truncated = ""
 	s.maxRead, s.oobHit = 0, false
-	s.timeCheck = 0
+	s.work, s.stopped = 0, false
 	s.maxDepth = o.MaxDepth
 	if s.maxDepth <= 0 || s.maxDepth > maxFrames {
 		s.maxDepth = maxFrames
@@ -522,22 +526,41 @@ func (s *scan) oob(n int, o int64, i int) bool { // readLength
 	return false
 }
 
-// timeUp polls the context every timeCheckEvery calls.
+// timeUp charges one top-level entry and reports whether the scan has
+// stopped.
 func (s *scan) timeUp() bool {
-	if !invariant.Check(s.timeCheck >= 0 && s.timeCheck < timeCheckEvery, "poll counter within period") {
+	return s.charge(lineCost)
+}
+
+// charge spends n units of work and polls the context each time
+// workPerPoll units have been spent since the last poll. It reports
+// whether the scan has stopped, at this poll or an earlier one; a caller
+// that sees true abandons the step it is in.
+func (s *scan) charge(n int) bool {
+	if !invariant.Check(n >= 0, "work charged is non-negative") ||
+		!invariant.Check(s.work >= 0 && s.work < workPerPoll, "work within the poll period") {
 		s.truncate(TruncInvariant)
-		s.timeCheck = 0
+		n, s.work = 0, 0
 	}
-	s.timeCheck++
-	if s.timeCheck < timeCheckEvery || s.ctx == nil {
-		return false
-	}
-	s.timeCheck = 0
-	if s.ctx.Err() != nil {
-		s.truncate(TruncTime)
+	if s.stopped {
 		return true
 	}
-	return false
+	s.work += min(n, workPerPoll)
+	if s.work < workPerPoll {
+		return false
+	}
+	s.work = 0
+	if s.ctx == nil || s.ctx.Err() == nil {
+		return false
+	}
+	s.stop()
+	return true
+}
+
+// stop ends the scan: the deadline passed or the step budget ran out.
+func (s *scan) stop() {
+	s.stopped = true
+	s.truncate(TruncTime)
 }
 
 // Output helpers: the reference's file_printf family over a fixed buffer.
@@ -635,7 +658,7 @@ func (s *scan) classifyMain() encoding {
 	if s.excluded(CheckEncoding) {
 		return encoding{kind: encBinary}
 	}
-	return classify(s.buf, s.lim.encoding)
+	return s.classify(s.buf, s.lim.encoding)
 }
 
 // writeSep is file_separator: the separator between two answers of a

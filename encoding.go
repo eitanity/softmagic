@@ -99,8 +99,9 @@ func (e encoding) charset() string {
 func (e encoding) isText() bool { return e.kind != encBinary }
 
 // classify is file_encoding over at most limit bytes of buf (the
-// reference's encoding_max).
-func classify(buf []byte, limit int) encoding {
+// reference's encoding_max). Each pass over the window is charged to the
+// scan before it runs; a stopped scan ends the classification as binary.
+func (s *scan) classify(buf []byte, limit int) encoding {
 	if !invariant.Check(limit >= 0 && limit <= encodingLimitMax, "encoding limit resolved") {
 		return encoding{}
 	}
@@ -110,29 +111,56 @@ func classify(buf []byte, limit int) encoding {
 	if !invariant.Check(len(buf) <= encodingLimitMax, "classified window bounded") {
 		return encoding{}
 	}
-	e := encoding{n: len(buf)} // textEncoding
-	switch {
-	case looksClass(buf, chT):
-		e.kind = encASCII
-		if looksUTF7(buf) {
-			e.kind = encUTF7
+	e := encoding{n: len(buf), kind: encBinary} // textEncoding
+	for pass := 0; pass < classifyPasses; pass++ {
+		if s.charge(len(buf)) {
+			return e
 		}
-	case looksUTF8WithBOM(buf) > 0:
-		e.kind = encUTF8BOM
-	case looksUTF8(buf) > 1:
-		e.kind = encUTF8
-	case looksUCS32(buf) != 0:
-		e.kind = unicodeKind(encUTF32LE, encUTF32BE, looksUCS32(buf))
-	case looksUCS16(buf) != 0:
-		e.kind = unicodeKind(encUTF16LE, encUTF16BE, looksUCS16(buf))
-	case looksClass(buf, chI):
-		e.kind = encLatin1
-	case looksClass(buf, chX):
-		e.kind = encExtended
-	default:
-		e.kind = looksEBCDIC(buf)
+		if kind, ok := classifyPass(buf, pass); ok {
+			e.kind = kind
+			return e
+		}
 	}
 	return e
+}
+
+// classifyPasses is how many passes classifyPass has; the last always
+// decides.
+const classifyPasses = 8
+
+// classifyPass is one test of file_encoding, in the reference's order:
+// the kind and true when this pass decides it.
+func classifyPass(buf []byte, pass int) (encodingKind, bool) {
+	switch pass {
+	case 0:
+		if !looksClass(buf, chT) {
+			return 0, false
+		}
+		if looksUTF7(buf) {
+			return encUTF7, true
+		}
+		return encASCII, true
+	case 1:
+		return encUTF8BOM, looksUTF8WithBOM(buf) > 0
+	case 2:
+		return encUTF8, looksUTF8(buf) > 1
+	case 3:
+		if r := looksUCS32(buf); r != 0 { // endianness
+			return unicodeKind(encUTF32LE, encUTF32BE, r), true
+		}
+		return 0, false
+	case 4:
+		if r := looksUCS16(buf); r != 0 { // endianness
+			return unicodeKind(encUTF16LE, encUTF16BE, r), true
+		}
+		return 0, false
+	case 5:
+		return encLatin1, looksClass(buf, chI)
+	case 6:
+		return encExtended, looksClass(buf, chX)
+	default:
+		return looksEBCDIC(buf), true
+	}
 }
 
 // unicodeKind maps a looks_ucs* result (1 little-endian, 2 big-endian).

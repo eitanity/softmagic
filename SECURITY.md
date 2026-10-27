@@ -66,9 +66,13 @@ Use the answer to route a file, not to admit it. When a decision depends on it:
 - confirm the type with a parser for that format before trusting the content.
 
 **Give every call a deadline.** `Identify(data)` has no deadline. For untrusted input call
-`IdentifyWith` or `IdentifyAt` with a context that has one; when it expires the match stops
-between rule steps and `Examined.Truncated` is `"time"`. Each rule step is itself bounded by
-the limits below.
+`IdentifyWith` or `IdentifyAt` with a context that has one; when it expires the call stops and
+`Examined.Truncated` is `"time"`. The deadline is checked every 64 rule steps and every 64 KiB
+of input that a single step searches, matches, parses, classifies or reads, so a search over a
+large window, the JSON and CSV detectors, the text checks and reads past the window stop part
+way. A run of whitespace or digits in JSON, and one pass of the encoding check (at most
+`Limits.Encoding` bytes), run to their end before the next check. Each rule step is also
+bounded by the limits below.
 
 **Bound concurrency.** A `Database` is safe for concurrent use. Each call in flight holds a
 pooled scan with the `MaxBytes` window, about six times the encoding window (384 KiB at the

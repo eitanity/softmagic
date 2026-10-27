@@ -207,12 +207,12 @@ func (s *scan) bufferBuiltins(e encoding) (m, done bool) { // encoding
 		}
 	}
 	if !s.excluded(CheckJSON) {
-		if m, done = s.bufferBuiltin(detectJSON(s.buf)); done {
+		if m, done = s.bufferBuiltin(s.detectJSON(s.buf)); done {
 			return m, done
 		}
 	}
 	if !s.excluded(CheckCSV) {
-		if m, done = s.bufferBuiltin(detectCSV(s.buf, e)); done {
+		if m, done = s.bufferBuiltin(s.detectCSV(s.buf, e)); done {
 			return m, done
 		}
 	}
@@ -295,7 +295,7 @@ func (s *scan) bufferText(looksText bool, e encoding) bool { // textEncoding
 		}
 		s.writeString("text/plain")
 	case s.mode == modeDesc:
-		s.describeText(te, scanLines(win, te))
+		s.describeText(te, s.scanLines(win, te))
 	default:
 	}
 	return true
@@ -308,7 +308,7 @@ func (s *scan) textWindow(e encoding) ([]byte, encoding, bool) { // encoding
 		s.truncate(TruncInvariant)
 		return nil, e, false
 	}
-	n := trimNuls(s.buf) // textLength
+	n := s.trimNuls(s.buf) // textLength
 	if n&1 != 0 && len(s.buf)&1 == 0 {
 		n++ // keep the last UTF-16 unit whole
 	}
@@ -317,10 +317,10 @@ func (s *scan) textWindow(e encoding) ([]byte, encoding, bool) { // encoding
 	}
 	win := s.buf[:n]
 	if n != len(s.buf) || s.excluded(CheckEncoding) {
-		e = classify(win, s.lim.encoding) // file_ascmagic classifies for itself
+		e = s.classify(win, s.lim.encoding) // file_ascmagic classifies for itself
 	}
 	// file_ascmagic_with_encoding trims again and gives up at one byte.
-	return win, e, e.isText() && trimNuls(win) > 1
+	return win, e, e.isText() && s.trimNuls(win) > 1
 }
 
 // bufferDefault is file_default, then file_buffer's default description.

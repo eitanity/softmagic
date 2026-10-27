@@ -69,6 +69,106 @@ func TestBoundsTime(t *testing.T) {
 	}
 }
 
+// TestBoundsSingleStep: a cancelled context stops each of these inputs
+// inside its one long step, not after it. Each step used to run to the
+// end before the deadline was next polled. The cancelled call must take
+// under a tenth of the uncancelled one, a ratio that holds with and
+// without the race detector. Encoding classification is excluded so
+// that its own poll, which comes first, cannot stop the call instead.
+func TestBoundsSingleStep(t *testing.T) {
+	magdir := compileMagdir(t) // database
+	// One search: at each of the 32 KiB offsets the leading space of the
+	// value compacts the rest of the window, so the step is quadratic.
+	search := compileRules(t, "0 search/32768/W \\ z found\n")
+	jsonArray := append([]byte("["), bytes.Repeat([]byte("1,"), 7<<19)...)
+	cdf := cdfChainDoc(30, 30)
+	for _, c := range []struct { // stepCase
+		name string
+		db   *Database
+		data []byte
+		o    Options
+	}{
+		{"whitespace-compacting search over spaces", search, bytes.Repeat([]byte(" "), 32<<10), Options{Exclude: CheckEncoding}},
+		{"JSON array of 7 MiB", magdir, jsonArray, Options{Exclude: CheckEncoding}},
+		{"CDF sector chain of 30 MiB", magdir, cdf, Options{MaxBytes: len(cdf), Exclude: CheckEncoding}},
+	} {
+		full, fullTime := timedIdentify(c.db, context.Background(), c.data, c.o)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		r, cancelledTime := timedIdentify(c.db, ctx, c.data, c.o)
+		if full.Examined.Truncated == TruncTime {
+			t.Errorf("%s: the uncancelled call was cut short", c.name)
+		}
+		if r.Examined.Truncated != TruncTime {
+			t.Errorf("%s: Truncated = %q, want %q", c.name, r.Examined.Truncated, TruncTime)
+		}
+		if cancelledTime*10 > fullTime {
+			t.Errorf("%s: cancelled call took %v, the whole call %v", c.name, cancelledTime, fullTime)
+		}
+	}
+}
+
+// timedIdentify is IdentifyWith and how long it took.
+func timedIdentify(db *Database, ctx context.Context, data []byte, o Options) (Result, time.Duration) { // database
+	start := time.Now()
+	r := db.IdentifyWith(ctx, data, o)
+	return r, time.Since(start)
+}
+
+// TestBoundsTextSteps: the CSV parser and the trailing-NUL trim stop
+// inside a 7 MiB input once the scan's context is cancelled. Both run
+// only after classification has polled, so they are driven directly.
+func TestBoundsTextSteps(t *testing.T) {
+	quoted := append([]byte(`a,"`), bytes.Repeat([]byte("a"), 7<<20)...)
+	nuls := append([]byte("a"), make([]byte, 7<<20)...)
+	for _, c := range []struct { // stepCase
+		step func(s *scan)
+		name string
+	}{
+		{func(s *scan) { s.csvParse(quoted) }, "CSV quoted field"},
+		{func(s *scan) { s.csvParse(nuls) }, "CSV line without an end"},
+		{func(s *scan) { s.trimNuls(nuls) }, "trailing NULs"},
+	} {
+		fullTime := timedStep(&scan{}, c.step)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		s := &scan{ctx: ctx}
+		cancelledTime := timedStep(s, c.step)
+		if !s.stopped {
+			t.Errorf("%s: the scan did not stop", c.name)
+		}
+		if cancelledTime*10 > fullTime {
+			t.Errorf("%s: cancelled step took %v, the whole step %v", c.name, cancelledTime, fullTime)
+		}
+	}
+}
+
+// timedStep runs step on s and returns how long it took.
+func timedStep(s *scan, step func(*scan)) time.Duration {
+	start := time.Now()
+	step(s)
+	return time.Since(start)
+}
+
+// TestBoundsStopSticks: once the deadline is seen, every later step
+// stops, even when another limit was reported first and so names the
+// truncation.
+func TestBoundsStopSticks(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s := &scan{ctx: ctx}
+	s.truncate(TruncOutput)
+	if !s.charge(workPerPoll) {
+		t.Fatal("a full poll period with a cancelled context did not stop the scan")
+	}
+	if !s.timeUp() || !s.charge(0) {
+		t.Error("a stopped scan went on")
+	}
+	if s.truncated != TruncOutput {
+		t.Errorf("Truncated = %q, want the first limit, %q", s.truncated, TruncOutput)
+	}
+}
+
 // TestBoundsDeadline: an expired deadline is reported the same way.
 func TestBoundsDeadline(t *testing.T) {
 	db := compileMagdir(t)

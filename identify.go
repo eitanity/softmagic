@@ -308,7 +308,7 @@ func (s *scan) textPhaseWouldRun(e encoding) bool { // encoding
 		return false
 	}
 	buf := s.buf
-	n := trimNuls(buf) // textLength
+	n := s.trimNuls(buf) // textLength
 	if n&1 != 0 && len(buf)&1 == 0 {
 		n++
 	}
@@ -316,9 +316,9 @@ func (s *scan) textPhaseWouldRun(e encoding) bool { // encoding
 		return false
 	}
 	if n != len(buf) || s.excluded(CheckEncoding) {
-		e = classify(buf[:n], s.lim.encoding)
+		e = s.classify(buf[:n], s.lim.encoding)
 	}
-	return e.isText() && trimNuls(buf[:n]) > 1 // the second trim, as in textPhase
+	return e.isText() && s.trimNuls(buf[:n]) > 1 // the second trim, as in textPhase
 }
 
 // extResult reproduces `file --extension`: the first extension annotation

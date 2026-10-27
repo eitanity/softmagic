@@ -26,12 +26,15 @@ type jsonFrame struct {
 // jsonParser holds the cursor, the container stack and the counts the
 // reference keeps in st[].
 type jsonParser struct {
-	uc     []byte
-	i      int
-	stack  [jsonMaxDepth + 1]jsonFrame
-	depth  int
-	arrays int // st[JSON_ARRAYN]: completed arrays
-	objs   int // st[JSON_OBJECT]: completed objects
+	s       *scan // charged for the bytes parsed; nil charges nothing
+	uc      []byte
+	i       int
+	charged int // the cursor when the scan was last charged
+	next    int // the cursor at which tick next charges
+	stack   [jsonMaxDepth + 1]jsonFrame
+	depth   int
+	arrays  int // st[JSON_ARRAYN]: completed arrays
+	objs    int // st[JSON_OBJECT]: completed objects
 }
 
 func jsonIsSpace(c byte) bool { return c == ' ' || c == '\n' || c == '\r' || c == '\t' }
@@ -41,14 +44,33 @@ func (p *jsonParser) skipSpace() {
 	}
 }
 
+// tick charges the scan for the bytes parsed since the last charge, once
+// the cursor reaches next, and reports whether the scan has stopped. A
+// stopped scan ends the parse, and detectJSON discards its result. The
+// token loop and the string loop test p.i >= p.next first, which keeps
+// the call off the path of all but one byte in workPerPoll. Runs of
+// whitespace or digits are not split: they are charged with the token
+// that follows them.
+func (p *jsonParser) tick() bool {
+	if p.s == nil || p.i < p.next {
+		return false
+	}
+	n := p.i - p.charged // parsedBytes
+	p.charged, p.next = p.i, p.i+workPerPoll
+	return p.s.charge(n)
+}
+
 // detectJSON is file_is_json: 1 for one JSON document, 2 for newline
 // delimited JSON (a second document of the same kind follows), else none.
-func detectJSON(buf []byte) builtinResult {
+func (s *scan) detectJSON(buf []byte) builtinResult {
 	if !invariant.Check(len(buf) >= 2, "detectors run on two or more bytes") {
 		return builtinResult{}
 	}
-	p := jsonParser{uc: buf}
+	p := jsonParser{s: s, uc: buf, next: workPerPoll}
 	jt := p.parseTop()
+	if s.stopped {
+		return builtinResult{}
+	}
 	switch jt {
 	case 1:
 		return builtinResult{desc: "JSON text data", mime: "application/json", hit: true}
@@ -92,7 +114,7 @@ func (p *jsonParser) parseValue() bool {
 	}
 	for steps := 0; steps <= len(p.uc)+jsonMaxDepth; steps++ {
 		ok, done := p.step()
-		if !ok {
+		if !ok || p.i >= p.next && p.tick() {
 			return false
 		}
 		if done {
@@ -225,7 +247,7 @@ func (p *jsonParser) scalarOrOpen() (ok, done bool) {
 // parseString is json_parse_string after the opening quote.
 func (p *jsonParser) parseString() bool {
 	for n := 0; n < len(p.uc); n++ { // each pass consumes at least one byte
-		if p.i >= len(p.uc) {
+		if p.i >= len(p.uc) || p.i >= p.next && p.tick() {
 			return false
 		}
 		c := p.uc[p.i]

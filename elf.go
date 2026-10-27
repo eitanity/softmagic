@@ -598,7 +598,8 @@ func (s *scan) inputSize() int64 {
 }
 
 // readAt returns exactly n bytes at off from the input: the window, or
-// the IdentifyAt reader beyond it.
+// the IdentifyAt reader beyond it. The n bytes are charged to the scan,
+// and once it has stopped every read fails.
 func (s *scan) readAt(off int64, n int) ([]byte, bool) { // length
 	if !invariant.Check(n >= 0, "length non-negative") {
 		s.truncate(TruncInvariant)
@@ -606,6 +607,9 @@ func (s *scan) readAt(off int64, n int) ([]byte, bool) { // length
 	}
 	if off < 0 || n > elfShsizeMax || off > s.inputSize() {
 		s.oobHit = true
+		return nil, false
+	}
+	if s.charge(n) {
 		return nil, false
 	}
 	if off+int64(n) <= int64(len(s.buf)) {
