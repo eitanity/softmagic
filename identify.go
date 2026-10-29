@@ -53,6 +53,7 @@ func (db *Database) IdentifyAt(ctx context.Context, r io.ReaderAt, size int64, o
 	s := db.pool.get(db, ctx, nil, o) // scanState
 	want := intFromI64(n)             // at most maxBytes
 	if cap(s.inbuf) < want {
+		db.pool.collectBefore(n)
 		s.inbuf = make([]byte, n)
 	}
 	// The pooled buffer is zeroed first, so a reader that claims more

@@ -10,6 +10,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/metrics"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -177,5 +179,40 @@ func TestMaxBytesBound(t *testing.T) {
 	})
 	if r.Description != "ASCII text" || alloc > 1<<20 {
 		t.Errorf("MaxBytes math.MaxInt: %q, allocated %d bytes", r.Description, alloc)
+	}
+}
+
+// zeroReader reads as an input of zeros.
+type zeroReader struct{}
+
+func (zeroReader) ReadAt(p []byte, _ int64) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+// TestLargeWindowsCollected: a call allocating a large window after an
+// earlier one was dropped first runs a collection. On 386 the runtime would
+// otherwise wait for a 4 GiB heap, so the second 2 GiB window ran out of
+// memory, a fatal error; there three windows of 2 GiB are read in turn.
+func TestLargeWindowsCollected(t *testing.T) {
+	db := compileMagdir(t) // database
+	forced := func() uint64 {
+		sample := []metrics.Sample{{Name: "/gc/cycles/forced:gc-cycles"}}
+		metrics.Read(sample)
+		return sample[0].Value.Uint64()
+	}
+	window := largeBuffer * 2
+	if strconv.IntSize == 32 && !testing.Short() {
+		window = maxBytesMax
+	}
+	before := forced()
+	for i := range 3 {
+		r := db.IdentifyAt(context.Background(), zeroReader{}, 10<<30, Options{MaxBytes: window})
+		if r.Description == "" || r.Examined.Truncated != "" {
+			t.Fatalf("window %d: %q, truncated %q", i, r.Description, r.Examined.Truncated)
+		}
+	}
+	if got := forced() - before; got < 2 {
+		t.Errorf("%d collections over three %d MiB windows, want one before each of the last two", got, window>>20)
 	}
 }

@@ -6,7 +6,9 @@ package softmagic
 import (
 	"context"
 	"io"
+	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"code.eitanity.com/softmagic/internal/invariant"
 )
@@ -328,6 +330,9 @@ type searchState struct {
 // pool constructor; the module has no function values otherwise.
 type scanPool struct {
 	p sync.Pool
+	// dropped is the bytes of buffers scans have dropped since
+	// collectBefore last ran a collection.
+	dropped atomic.Int64
 }
 
 func newScanPool() *scanPool {
@@ -354,12 +359,31 @@ func (sp *scanPool) put(s *scan) {
 	if s.held > poolKeepBytes {
 		s.srcbuf, s.tailBuf, s.tail, s.cdfdir = nil, nil, nil, nil
 		s.cdfbuf = [4][]byte{}
+		sp.dropped.Add(s.held)
 		s.held = 0
 	}
 	if cap(s.inbuf) > poolKeepBytes {
+		sp.dropped.Add(int64(cap(s.inbuf)))
 		s.inbuf = nil
 	}
 	sp.p.Put(s)
+}
+
+// largeBuffer is the size from which allocating a buffer may first run
+// a collection.
+const largeBuffer = 64 << 20
+
+// collectBefore runs a collection before a buffer of want bytes is
+// allocated, when want and the bytes scans dropped since the last one are
+// both large. Allocating a large window starts a collection while that
+// window is live, and the next waits for the heap to double: after a
+// 2 GiB window, 4 GiB, which a 32-bit process cannot reach, so the next
+// 2 GiB window ran out of memory with the first unreclaimed, where file
+// had freed its buffer.
+func (sp *scanPool) collectBefore(want int64) {
+	if want >= largeBuffer && sp.dropped.Load() >= largeBuffer && sp.dropped.Swap(0) >= largeBuffer {
+		runtime.GC()
+	}
 }
 
 // reserve accounts for growing one of the scan's kept buffers from have
@@ -372,6 +396,9 @@ func (s *scan) reserve(have, want int64) bool {
 	if s.held-have+want > s.memLimit {
 		s.truncate(TruncMemory)
 		return false
+	}
+	if s.db != nil && s.db.pool != nil {
+		s.db.pool.collectBefore(want)
 	}
 	s.held += want - have
 	return true
