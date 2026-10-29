@@ -137,9 +137,10 @@ type RuleID struct {
 
 // Examined reports the scope and the limits of one identification.
 type Examined struct {
-	// Truncated is "" or the limit that stopped a match: "recursion",
-	// "search", "regex", "time", "output" or "invariant" (an internal
-	// consistency check failed and the entry under evaluation was skipped).
+	// Truncated is "" or what stopped a match, one of the Trunc constants:
+	// "recursion", "search", "regex", "time", "output", "invariant" (an
+	// internal consistency check failed and the entry under evaluation was
+	// skipped), "cdf", "memory", "indirect", "name", "elf" or "read".
 	Truncated string
 	// ReadError is the error IdentifyAt's reader returned for the window,
 	// when it read fewer bytes than asked and the error is not io.EOF.
