@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,5 +154,28 @@ func TestDump(t *testing.T) {
 	}
 	if got != string(want) {
 		t.Errorf("dump differs:\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestMaxBytesBound: MaxBytes above the most file -P bytes accepts is
+// clamped to it, and IdentifyAt allocates the window for the input's size,
+// not for MaxBytes: a 12-byte input with MaxBytes math.MaxInt costs far
+// less than a MiB.
+func TestMaxBytesBound(t *testing.T) {
+	for _, c := range []struct{ in, want int }{ // boundCase
+		{0, DefaultMaxBytes}, {-1, 0}, {5, 5}, {maxBytesMax, maxBytesMax}, {math.MaxInt, maxBytesMax},
+	} {
+		if got := (Options{MaxBytes: c.in}).maxBytes(); got != c.want {
+			t.Errorf("MaxBytes %d resolves to %d, want %d", c.in, got, c.want)
+		}
+	}
+	db := compileMagdir(t) // database
+	data := []byte("hello world\n")
+	var r Result
+	alloc := allocatedBy(func() {
+		r = db.IdentifyAt(context.Background(), bytes.NewReader(data), int64(len(data)), Options{MaxBytes: math.MaxInt})
+	})
+	if r.Description != "ASCII text" || alloc > 1<<20 {
+		t.Errorf("MaxBytes math.MaxInt: %q, allocated %d bytes", r.Description, alloc)
 	}
 }

@@ -17,6 +17,9 @@ const (
 	// DefaultMaxBytes is how much of the input is consulted: the
 	// reference's FILE_BYTES_MAX in file 5.48.
 	DefaultMaxBytes = 7 * 1024 * 1024
+	// maxBytesMax bounds Options.MaxBytes: the largest -P bytes file
+	// accepts, 0x7fffffff, which fits an int on any host.
+	maxBytesMax = 1<<31 - 1
 	// DefaultMaxMemory is how many bytes one call's working buffers may
 	// hold beyond the input window, the default of Options.MaxMemory.
 	DefaultMaxMemory = 64 << 20
@@ -83,8 +86,10 @@ const (
 // Options configures one identification. The zero value means defaults.
 type Options struct {
 	// MaxBytes caps the input consulted (file -P bytes); 0 means
-	// DefaultMaxBytes and a negative value means none at all, as bytes=0
-	// does for the reference.
+	// DefaultMaxBytes, a negative value means none at all, as bytes=0
+	// does for the reference, and values above 0x7fffffff, the most file
+	// -P accepts, are clamped to it. IdentifyAt allocates the window, up
+	// to the smaller of MaxBytes and the input's size, before it reads.
 	MaxBytes int
 	// MaxDepth caps use/indirect nesting; 0 means maxFrames, and larger
 	// values are clamped to it.
@@ -153,14 +158,7 @@ type Limits struct {
 
 // maxBytes is MaxBytes resolved: 0 the default, negative 0.
 func (o Options) maxBytes() int {
-	switch {
-	case o.MaxBytes == 0:
-		return DefaultMaxBytes
-	case o.MaxBytes < 0:
-		return 0
-	default:
-		return o.MaxBytes
-	}
+	return limitValue(o.MaxBytes, DefaultMaxBytes, maxBytesMax)
 }
 
 // limits are Limits resolved to the values a call uses.
