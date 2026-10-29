@@ -388,6 +388,7 @@ func (s *scan) reset(db *Database, ctx context.Context, buf []byte, o Options) {
 	s.db, s.buf, s.ctx = db, buf, ctx
 	s.nframes, s.offset, s.eoffset = 0, 0, 0
 	s.search = searchState{}
+	clear(s.value[:]) // a der conversion prints the value a line before it copied, zero as in a new magic_set
 	s.indir, s.names = 0, 0
 	s.mode = modeDesc
 	s.outLen, s.printedSomething, s.needSeparator = 0, false, false

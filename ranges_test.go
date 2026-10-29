@@ -175,3 +175,21 @@ func TestRegionInIndirectFrame(t *testing.T) {
 		}
 	}
 }
+
+// TestValueNotCarriedOver: a der line's %s prints the value buffer, which
+// it does not fill itself. Each call starts with that buffer zeroed, as a
+// new magic_set does, where a pooled scan used to print the bytes the
+// call before it copied. The answer is file 5.48's.
+func TestValueNotCarriedOver(t *testing.T) {
+	db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(
+		"0x10\tder\tint\t0 %s\n>&0\tubyte\tx\t\\b, then %u\n")}}, CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := []byte("0000000000000000B\x0100000000000000000")
+	for i := range 3 {
+		if got := db.Identify(input).Description; got != "0 , then 48" {
+			t.Errorf("call %d: %q, want %q", i, got, "0 , then 48")
+		}
+	}
+}
