@@ -282,8 +282,9 @@ func ruleType(name string) uint8 {
 // ruleSeeds are the shapes of the defects the rule paths have had: a
 // string, regex or search range of 2^31 and 2^32-1 (SOF-4), a der line
 // at a negative relative offset (SOF-12), a search in an indirect frame
-// (SOF-13), and numerals past 64 bits as an offset, a range, a mask and
-// a value (SOF-16).
+// (SOF-13), numerals past 64 bits as an offset, a range, a mask and a
+// value (SOF-16), and a 64-bit date before year -999, which the binary
+// input's first eight bytes are (SOF-8).
 func ruleSeeds() []ruleFields {
 	const (
 		relEq, relAny = 1, 7
@@ -310,6 +311,7 @@ func ruleSeeds() []ruleFields {
 		{typ: ruleType("byte"), value: math.MaxUint64, flags: relEq, desc: "VALUE"},
 		{typ: ruleType("der"), offsetKind: 3, offset: 16, flags: relAny | parent, desc: "D"},
 		{typ: ruleType("long"), value: 0x10, flags: 4 | 0x4000 | conv | 0x800, desc: "L"},
+		{typ: ruleType("beqdate"), flags: relAny | conv, desc: "D"},
 	}
 }
 
@@ -326,19 +328,10 @@ func ruleSeeds() []ruleFields {
 //     the input alone answers, as file reads every offset in an indirect
 //     frame from the frame's start.
 func FuzzRule(f *testing.F) {
-	// A rule whose test value is printable runs only on text, as in the
-	// reference, so every seed has a text input and a binary one.
-	inputs := []string{"\x80\x00\x00\x00hello world\x00\x02\x01\x050\x03\x02\x01\x05abcdefgh hello world\n",
-		"hello world, abcdefgh hello world\n"}
-	for _, r := range ruleSeeds() {
-		for _, in := range inputs {
-			f.Add(r.typ, r.offsetKind, r.offset, r.indirectType, r.rangeVal, r.flags, r.value, r.desc, []byte(in))
-		}
-	}
+	fuzzSeeds(f, ruleSeedArgs())
 	f.Fuzz(func(t *testing.T, typ, offsetKind uint8, offset int64, indirectType uint8, rangeVal uint32,
 		flags uint16, value uint64, desc string, input []byte) {
-		r := ruleFields{typ: typ, offsetKind: offsetKind, offset: offset, indirectType: indirectType,
-			rangeVal: rangeVal, flags: flags, value: value, desc: desc}
+		r, _ := ruleFromArgs([]any{typ, offsetKind, offset, indirectType, rangeVal, flags, value, desc})
 		text := r.ruleText(spellPlain)
 		if over := r.ruleText(spellOver); over != text {
 			fuzzSaturated(t, over, r.ruleText(spellRead), input)
@@ -352,6 +345,32 @@ func FuzzRule(f *testing.F) {
 			fuzzIndirectFrame(t, text, input)
 		}
 	})
+}
+
+// ruleSeedArgs are FuzzRule's seed arguments: each of ruleSeeds with a
+// binary input and with a text one, since a rule whose test value is
+// printable runs only on text, as in the reference.
+func ruleSeedArgs() [][]any {
+	inputs := []string{"\x80\x00\x00\x00hello world\x00\x02\x01\x050\x03\x02\x01\x05abcdefgh hello world\n",
+		"hello world, abcdefgh hello world\n"}
+	var seeds [][]any
+	for _, r := range ruleSeeds() {
+		for _, in := range inputs {
+			seeds = append(seeds, []any{r.typ, r.offsetKind, r.offset, r.indirectType, r.rangeVal, r.flags,
+				r.value, r.desc, []byte(in)})
+		}
+	}
+	return seeds
+}
+
+// ruleFromArgs is the rule FuzzRule's first eight arguments describe,
+// false when they are not its arguments.
+func ruleFromArgs(args []any) (ruleFields, bool) {
+	a := &argReader{args: args, ok: true}
+	r := ruleFields{typ: arg[uint8](a), offsetKind: arg[uint8](a), offset: arg[int64](a),
+		indirectType: arg[uint8](a), rangeVal: arg[uint32](a), flags: arg[uint16](a), value: arg[uint64](a),
+		desc: arg[string](a)}
+	return r, a.done()
 }
 
 // fuzzSaturated compares the rules with a numeral past 64 bits with the

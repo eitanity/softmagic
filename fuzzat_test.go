@@ -26,17 +26,7 @@ func FuzzIdentifyAt(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	names, err := filepath.Glob("testdata/corpus/*.testfile")
-	if err != nil {
-		f.Fatal(err)
-	}
-	for i, n := range names {
-		data, err := os.ReadFile(filepath.Clean(n))
-		if err == nil && len(data) < 256*1024 {
-			f.Add(data, uint16(64+i*37), uint8(i), uint8(i*13))
-		}
-	}
-	f.Add([]byte("\x7fELF\x02\x01\x01"), uint16(8), uint8(1), uint8(0))
+	fuzzSeeds(f, identifyAtSeeds())
 	f.Fuzz(func(t *testing.T, data []byte, window uint16, claim, flags uint8) {
 		o := fuzzAtOptions(window, claim, flags)     // options
 		size := int64(len(data)) + int64(claim&3)*97 // past the end: reads there fail
@@ -62,6 +52,24 @@ func FuzzIdentifyAt(f *testing.F) {
 			t.Fatalf("the same call twice differs:\n %s\n %s", a, b)
 		}
 	})
+}
+
+// identifyAtSeeds are FuzzIdentifyAt's seed arguments: the corpus files
+// under 256 KiB with windows, claims and flags that vary from file to
+// file, and the start of an ELF header in an eight-byte window.
+func identifyAtSeeds() [][]any {
+	var seeds [][]any
+	names, err := filepath.Glob("testdata/corpus/*.testfile")
+	if err != nil {
+		return nil
+	}
+	for i, n := range names {
+		data, err := os.ReadFile(filepath.Clean(n))
+		if err == nil && len(data) < 256*1024 {
+			seeds = append(seeds, []any{data, uint16(64 + i*37), uint8(i), uint8(i * 13)})
+		}
+	}
+	return append(seeds, []any{[]byte("\x7fELF\x02\x01\x01"), uint16(8), uint8(1), uint8(0)})
 }
 
 // fuzzAtOptions are the options a FuzzIdentifyAt input chooses.

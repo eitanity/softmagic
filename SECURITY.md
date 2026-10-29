@@ -130,4 +130,7 @@ builds a rule from typed fields (type, offset form, range, flags, value) and run
 input; it also checks that a numeral past 64 bits reads as `file` reads it, and that rules run
 again through `indirect` answer as they do over the same bytes at the start of the file.
 `make fuzz` runs each of them on amd64 and 386, with assertions on and as released, and every
-fuzzed call fails if it allocates more than 64 MiB or takes more than 2 seconds.
+fuzzed call fails if it allocates more than 64 MiB or takes more than 2 seconds. Beyond
+`FuzzRule`'s two comparisons, the fuzz targets check that nothing fails, not that the answer is
+file's. softmagic-cli's `make differential` checks that: it gives every case in the fuzz corpora (seeds, `testdata/fuzz`
+and the fuzz cache) to softmagic and to file 5.48 and lists each difference in their output.

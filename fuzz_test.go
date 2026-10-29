@@ -22,17 +22,7 @@ func FuzzIdentify(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	names, err := filepath.Glob("testdata/corpus/*.testfile")
-	if err != nil {
-		f.Fatal(err)
-	}
-	for _, n := range names {
-		if data, err := os.ReadFile(filepath.Clean(n)); err == nil && len(data) < 64*1024 {
-			f.Add(data)
-		}
-	}
-	f.Add([]byte{})
-	f.Add([]byte("\x7fELF"))
+	fuzzSeeds(f, identifySeeds())
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var r Result // result
 		fuzzBounded(t, "Identify", func() { r = db.Identify(data) })
@@ -92,13 +82,36 @@ func FuzzIdentify(f *testing.F) {
 	})
 }
 
+// identifySeeds are FuzzIdentify's seed arguments: the corpus files
+// under 64 KiB, an empty file and an ELF magic number alone.
+func identifySeeds() [][]any {
+	var seeds [][]any
+	names, err := filepath.Glob("testdata/corpus/*.testfile")
+	if err != nil {
+		return nil
+	}
+	for _, n := range names {
+		if data, err := os.ReadFile(filepath.Clean(n)); err == nil && len(data) < 64*1024 {
+			seeds = append(seeds, []any{data})
+		}
+	}
+	return append(seeds, []any{[]byte{}}, []any{[]byte("\x7fELF")})
+}
+
+// compileSeeds are FuzzCompile's seed arguments.
+func compileSeeds() [][]any {
+	return [][]any{
+		{"0 string ABC hello\n>3 byte x %d\n!:mime text/x-abc\n"},
+		{"0 regex/100l ^[a-z]+ word\n"},
+		{"0 name x\n>0 use x\n"},
+		{"0 search/10 abc\n0 lelong&0xff =1 one\n>(4.l+2) ubelong x %u\n"},
+		{"0 string XY extra\n>2 use base\n"},
+	}
+}
+
 // FuzzCompile: no rule text may panic the compiler.
 func FuzzCompile(f *testing.F) {
-	f.Add("0 string ABC hello\n>3 byte x %d\n!:mime text/x-abc\n")
-	f.Add("0 regex/100l ^[a-z]+ word\n")
-	f.Add("0 name x\n>0 use x\n")
-	f.Add("0 search/10 abc\n0 lelong&0xff =1 one\n>(4.l+2) ubelong x %u\n")
-	f.Add("0 string XY extra\n>2 use base\n")
+	fuzzSeeds(f, compileSeeds())
 	base, err := compileFS(fstest.MapFS{"b": &fstest.MapFile{Data: []byte(
 		"0 name base\n>0 byte x \\b, base %d\n0 string AB base rules\n>0 use base\n")}}, CompileOptions{})
 	if err != nil {

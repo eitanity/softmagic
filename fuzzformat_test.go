@@ -258,25 +258,39 @@ func FuzzELF(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	for _, e := range elfSeeds() {
-		f.Add(e.class64, e.big, e.etype, e.machine, e.phnum, e.shnum, e.shstrndx, e.phoff, e.shoff,
-			e.phTypeA, e.phOffA, e.phSizeA, e.phVaddrA, e.phTypeB, e.phOffB, e.phSizeB, e.phVaddrB,
-			e.shTypeA, e.shNameA, e.shOffA, e.shSizeA, e.shTypeB, e.shNameB, e.shOffB, e.shSizeB,
-			e.fileSize, e.payload)
-	}
+	fuzzSeeds(f, elfSeedArgs())
 	f.Fuzz(func(t *testing.T, class64, big bool, etype, machine, phnum, shnum, shstrndx uint16,
 		phoff, shoff uint64, phTypeA uint32, phOffA, phSizeA, phVaddrA uint64,
 		phTypeB uint32, phOffB, phSizeB, phVaddrB uint64, shTypeA, shNameA uint32, shOffA, shSizeA uint64,
 		shTypeB, shNameB uint32, shOffB, shSizeB uint64, fileSize uint32, payload []byte) {
-		e := elfFields{class64: class64, big: big, etype: etype, machine: machine, phnum: phnum,
-			shnum: shnum, shstrndx: shstrndx, phoff: phoff, shoff: shoff,
-			phTypeA: phTypeA, phOffA: phOffA, phSizeA: phSizeA, phVaddrA: phVaddrA,
-			phTypeB: phTypeB, phOffB: phOffB, phSizeB: phSizeB, phVaddrB: phVaddrB,
-			shTypeA: shTypeA, shNameA: shNameA, shOffA: shOffA, shSizeA: shSizeA,
-			shTypeB: shTypeB, shNameB: shNameB, shOffB: shOffB, shSizeB: shSizeB,
-			fileSize: fileSize, payload: payload}
+		e, _ := elfFromArgs([]any{class64, big, etype, machine, phnum, shnum, shstrndx, phoff, shoff,
+			phTypeA, phOffA, phSizeA, phVaddrA, phTypeB, phOffB, phSizeB, phVaddrB,
+			shTypeA, shNameA, shOffA, shSizeA, shTypeB, shNameB, shOffB, shSizeB, fileSize, payload})
 		fuzzStructured(t, db, elfImage(&e), int64(fileSize))
 	})
+}
+
+// elfArgs are e's fields as FuzzELF's arguments, in its order.
+func elfArgs(e *elfFields) []any {
+	return []any{e.class64, e.big, e.etype, e.machine, e.phnum, e.shnum, e.shstrndx, e.phoff, e.shoff,
+		e.phTypeA, e.phOffA, e.phSizeA, e.phVaddrA, e.phTypeB, e.phOffB, e.phSizeB, e.phVaddrB,
+		e.shTypeA, e.shNameA, e.shOffA, e.shSizeA, e.shTypeB, e.shNameB, e.shOffB, e.shSizeB,
+		e.fileSize, e.payload}
+}
+
+// elfFromArgs is the inverse of elfArgs, false when args are not
+// FuzzELF's.
+func elfFromArgs(args []any) (elfFields, bool) {
+	a := &argReader{args: args, ok: true}
+	e := elfFields{class64: arg[bool](a), big: arg[bool](a), etype: arg[uint16](a), machine: arg[uint16](a),
+		phnum: arg[uint16](a), shnum: arg[uint16](a), shstrndx: arg[uint16](a),
+		phoff: arg[uint64](a), shoff: arg[uint64](a),
+		phTypeA: arg[uint32](a), phOffA: arg[uint64](a), phSizeA: arg[uint64](a), phVaddrA: arg[uint64](a),
+		phTypeB: arg[uint32](a), phOffB: arg[uint64](a), phSizeB: arg[uint64](a), phVaddrB: arg[uint64](a),
+		shTypeA: arg[uint32](a), shNameA: arg[uint32](a), shOffA: arg[uint64](a), shSizeA: arg[uint64](a),
+		shTypeB: arg[uint32](a), shNameB: arg[uint32](a), shOffB: arg[uint64](a), shSizeB: arg[uint64](a),
+		fileSize: arg[uint32](a), payload: arg[[]byte](a)}
+	return e, a.done()
 }
 
 // The CDF image is at most 4 MiB, room for the header and three 1 MiB
@@ -465,21 +479,35 @@ func FuzzCDF(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	for _, c := range cdfSeeds() {
-		f.Add(c.secShift, c.shortShift, c.numSAT, c.numMSAT, c.firstMSAT, c.minStream,
-			c.dirStart, c.dirLen, c.ssatStart, c.ssatLen, c.rootStart, c.rootLen,
-			c.sumStart, c.sumSize, c.sumType, c.propType, c.propCount, c.fileSize, c.payload)
-	}
+	fuzzSeeds(f, cdfSeedArgs())
 	f.Fuzz(func(t *testing.T, secShift, shortShift uint16, numSAT, numMSAT, firstMSAT, minStream,
 		dirStart, dirLen, ssatStart, ssatLen, rootStart, rootLen, sumStart, sumSize uint32,
 		sumType uint8, propType, propCount, fileSize uint32, payload []byte) {
-		c := cdfFields{secShift: secShift, shortShift: shortShift, numSAT: numSAT, numMSAT: numMSAT,
-			firstMSAT: firstMSAT, minStream: minStream, dirStart: dirStart, dirLen: dirLen,
-			ssatStart: ssatStart, ssatLen: ssatLen, rootStart: rootStart, rootLen: rootLen,
-			sumStart: sumStart, sumSize: sumSize, sumType: sumType, propType: propType,
-			propCount: propCount, fileSize: fileSize, payload: payload}
+		c, _ := cdfFromArgs([]any{secShift, shortShift, numSAT, numMSAT, firstMSAT, minStream,
+			dirStart, dirLen, ssatStart, ssatLen, rootStart, rootLen, sumStart, sumSize,
+			sumType, propType, propCount, fileSize, payload})
 		fuzzStructured(t, db, cdfImage(&c), int64(fileSize))
 	})
+}
+
+// cdfArgs are c's fields as FuzzCDF's arguments, in its order.
+func cdfArgs(c *cdfFields) []any {
+	return []any{c.secShift, c.shortShift, c.numSAT, c.numMSAT, c.firstMSAT, c.minStream,
+		c.dirStart, c.dirLen, c.ssatStart, c.ssatLen, c.rootStart, c.rootLen,
+		c.sumStart, c.sumSize, c.sumType, c.propType, c.propCount, c.fileSize, c.payload}
+}
+
+// cdfFromArgs is the inverse of cdfArgs, false when args are not
+// FuzzCDF's.
+func cdfFromArgs(args []any) (cdfFields, bool) {
+	a := &argReader{args: args, ok: true}
+	c := cdfFields{secShift: arg[uint16](a), shortShift: arg[uint16](a), numSAT: arg[uint32](a),
+		numMSAT: arg[uint32](a), firstMSAT: arg[uint32](a), minStream: arg[uint32](a),
+		dirStart: arg[uint32](a), dirLen: arg[uint32](a), ssatStart: arg[uint32](a), ssatLen: arg[uint32](a),
+		rootStart: arg[uint32](a), rootLen: arg[uint32](a), sumStart: arg[uint32](a), sumSize: arg[uint32](a),
+		sumType: arg[uint8](a), propType: arg[uint32](a), propCount: arg[uint32](a),
+		fileSize: arg[uint32](a), payload: arg[[]byte](a)}
+	return c, a.done()
 }
 
 // derLengthBytes is an element length in one of the encodings form selects:
@@ -537,23 +565,31 @@ func FuzzDER(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	// A 512-bit key pair's version, modulus and exponent, and a fourth
-	// element: the reference matches the key only when its length is in
-	// the long form and an element follows the exponent.
-	keyPair := []byte("\x02\x01\x00\x02\x41\x00" + string(make([]byte, 64)) + "\x02\x03\x01\x00\x01\x02\x01\x00")
-	f.Add(uint8(0x30), uint8(1), uint8(2), uint8(1), uint64(0), keyPair)
-	f.Add(uint8(0x30), uint8(0), uint8(0), uint8(1), uint64(0), keyPair)
-	f.Add(uint8(0x30), uint8(1), uint8(8), uint8(1), uint64(0), keyPair)
-	f.Add(uint8(0x30), uint8(1), uint8(0), uint8(3), uint64(0), keyPair)
-	f.Add(uint8(0x30), uint8(2), uint8(0), uint8(2), uint64(1<<32-1), keyPair)
-	f.Add(uint8(0x3f), uint8(1), uint8(8), uint8(4), uint64(0), []byte("\x1f\x81\x80\x80\x80\x00"))
-	if cert, err := os.ReadFile("testdata/corpus/sample-x509-der.testfile"); err == nil {
-		f.Add(uint8(0x30), uint8(0), uint8(0), uint8(0), uint64(0), cert)
-	}
+	fuzzSeeds(f, derSeeds())
 	f.Fuzz(func(t *testing.T, tag, form, digits, nesting uint8, lie uint64, payload []byte) {
 		data := derFile(tag, form, digits, nesting, lie, payload)
 		fuzzStructured(t, db, data, int64(len(data)))
 	})
+}
+
+// derSeeds are FuzzDER's seed arguments.
+func derSeeds() [][]any {
+	// A 512-bit key pair's version, modulus and exponent, and a fourth
+	// element: the reference matches the key only when its length is in
+	// the long form and an element follows the exponent.
+	keyPair := []byte("\x02\x01\x00\x02\x41\x00" + string(make([]byte, 64)) + "\x02\x03\x01\x00\x01\x02\x01\x00")
+	seeds := [][]any{
+		{uint8(0x30), uint8(1), uint8(2), uint8(1), uint64(0), keyPair},
+		{uint8(0x30), uint8(0), uint8(0), uint8(1), uint64(0), keyPair},
+		{uint8(0x30), uint8(1), uint8(8), uint8(1), uint64(0), keyPair},
+		{uint8(0x30), uint8(1), uint8(0), uint8(3), uint64(0), keyPair},
+		{uint8(0x30), uint8(2), uint8(0), uint8(2), uint64(1<<32 - 1), keyPair},
+		{uint8(0x3f), uint8(1), uint8(8), uint8(4), uint64(0), []byte("\x1f\x81\x80\x80\x80\x00")},
+	}
+	if cert, err := os.ReadFile("testdata/corpus/sample-x509-der.testfile"); err == nil {
+		seeds = append(seeds, []any{uint8(0x30), uint8(0), uint8(0), uint8(0), uint64(0), cert})
+	}
+	return seeds
 }
 
 // pstringWidth is a pstring length width: the flag, and the bytes the
@@ -569,20 +605,27 @@ func pstringWidths() [5]pstringWidth {
 	return [5]pstringWidth{{"B", 1, false}, {"H", 2, true}, {"h", 2, false}, {"L", 4, true}, {"l", 4, false}}
 }
 
-// pstringRules is one rule per width, with and without /J, each at the
-// start of the file.
-func pstringRules(f *testing.F) []*Database {
-	var dbs []*Database
+// pstringRuleText is one rule set per width, with and without /J, each
+// at the start of the file: the width's index times two, plus one for /J.
+func pstringRuleText() []string {
+	var texts []string
 	for _, w := range pstringWidths() {
 		for _, j := range []string{"", "J"} {
-			db, err := compileFS(fstest.MapFS{"p": &fstest.MapFile{Data: []byte(
-				"0 pstring/" + w.flag + j + " x pstring \"%s\"\n>0 pstring/" + w.flag + j + " =abc \\b, abc\n")}},
-				CompileOptions{})
-			if err != nil {
-				f.Fatal(err)
-			}
-			dbs = append(dbs, db)
+			texts = append(texts, "0 pstring/"+w.flag+j+" x pstring \"%s\"\n>0 pstring/"+w.flag+j+" =abc \\b, abc\n")
 		}
+	}
+	return texts
+}
+
+// pstringRules are pstringRuleText compiled.
+func pstringRules(f *testing.F) []*Database {
+	var dbs []*Database
+	for _, text := range pstringRuleText() {
+		db, err := compileFS(fstest.MapFS{"p": &fstest.MapFile{Data: []byte(text)}}, CompileOptions{})
+		if err != nil {
+			f.Fatal(err)
+		}
+		dbs = append(dbs, db)
 	}
 	return dbs
 }
@@ -606,42 +649,59 @@ func FuzzPString(f *testing.F) {
 		f.Fatal(err)
 	}
 	dbs := pstringRules(f)
+	fuzzSeeds(f, pstringSeeds())
+	f.Fuzz(func(t *testing.T, width uint8, j bool, value uint32, jpeg bool, payload []byte) {
+		rules, data := pstringCase(width, j, value, jpeg, payload)
+		db := stock
+		if rules >= 0 {
+			db = dbs[rules]
+		}
+		fuzzStructured(t, db, data, int64(len(data)))
+	})
+}
+
+// pstringSeeds are FuzzPString's seed arguments.
+func pstringSeeds() [][]any {
+	var seeds [][]any
 	for _, c := range []struct {
 		width uint8
 		j     bool
 		value uint32
 	}{{0, false, 3}, {1, true, 5}, {2, true, 0}, {3, true, 1}, {4, false, 0xffffffff}, {0, true, 0}} {
-		f.Add(c.width, c.j, c.value, false, []byte("abc"))
+		seeds = append(seeds, []any{c.width, c.j, c.value, false, []byte("abc")})
 	}
-	f.Add(uint8(1), true, uint32(0), true, []byte("AAAAAAAA"))
-	f.Add(uint8(1), true, uint32(1), true, []byte("AAAAAAAA"))
-	f.Add(uint8(1), true, uint32(10), true, []byte("AAAAAAAA"))
-	f.Fuzz(func(t *testing.T, width uint8, j bool, value uint32, jpeg bool, payload []byte) {
-		if jpeg {
-			data := jpegComment(low16(uint64(value)), payload)
-			fuzzStructured(t, stock, data, int64(len(data)))
-			return
-		}
-		widths := pstringWidths()
-		w := widths[int(width)%len(widths)]
-		var data []byte
-		switch {
-		case w.bytes == 1:
-			data = []byte{low8(uint64(value))}
-		case w.bytes == 2 && w.big:
-			data = binary.BigEndian.AppendUint16(nil, low16(uint64(value)))
-		case w.bytes == 2:
-			data = binary.LittleEndian.AppendUint16(nil, low16(uint64(value)))
-		case w.big:
-			data = binary.BigEndian.AppendUint32(nil, value)
-		default:
-			data = binary.LittleEndian.AppendUint32(nil, value)
-		}
-		data = append(data, payload...)
-		db := dbs[2*(int(width)%len(widths))]
-		if j {
-			db = dbs[2*(int(width)%len(widths))+1]
-		}
-		fuzzStructured(t, db, data, int64(len(data)))
-	})
+	for _, v := range []uint32{0, 1, 10} {
+		seeds = append(seeds, []any{uint8(1), true, v, true, []byte("AAAAAAAA")})
+	}
+	return seeds
+}
+
+// pstringCase is the file a FuzzPString input describes, and the index
+// in pstringRuleText of the rules it is checked with, or -1 for the
+// stock rules (the JPEG comment).
+func pstringCase(width uint8, j bool, value uint32, jpeg bool, payload []byte) (int, []byte) {
+	if jpeg {
+		return -1, jpegComment(low16(uint64(value)), payload)
+	}
+	widths := pstringWidths()
+	k := int(width) % len(widths)
+	w := widths[k]
+	var data []byte
+	switch {
+	case w.bytes == 1:
+		data = []byte{low8(uint64(value))}
+	case w.bytes == 2 && w.big:
+		data = binary.BigEndian.AppendUint16(nil, low16(uint64(value)))
+	case w.bytes == 2:
+		data = binary.LittleEndian.AppendUint16(nil, low16(uint64(value)))
+	case w.big:
+		data = binary.BigEndian.AppendUint32(nil, value)
+	default:
+		data = binary.LittleEndian.AppendUint32(nil, value)
+	}
+	rules := 2 * k
+	if j {
+		rules++
+	}
+	return rules, append(data, payload...)
 }

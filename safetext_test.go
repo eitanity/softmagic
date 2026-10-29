@@ -49,14 +49,11 @@ func TestSafeText(t *testing.T) {
 // with none of SafeText's escaped characters left as they are, and
 // decoding its \xHH escapes gives back exactly the Raw answer.
 func FuzzSafeText(f *testing.F) {
-	db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(
-		"0\tubyte\tx\t%c\n>1\tstring\tx\t\\b, %s\n>0\tregex\t[^\\n]+\t\\b, %s\n")}}, CompileOptions{})
+	db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(safeTextRules)}}, CompileOptions{})
 	if err != nil {
 		f.Fatal(err)
 	}
-	for _, s := range []string{"<a href='x'>", "\x1b[31m\\x", "\xff\xfe\x00z", "caf\xc3\xa9 \"q\" `b` &amp;"} {
-		f.Add([]byte(s))
-	}
+	fuzzSeeds(f, safeTextSeeds())
 	f.Fuzz(func(t *testing.T, data []byte) {
 		safe := db.IdentifyWith(context.Background(), data, Options{SafeText: true})
 		raw := db.IdentifyWith(context.Background(), data, Options{Raw: true})
@@ -72,6 +69,18 @@ func FuzzSafeText(f *testing.F) {
 			t.Fatalf("decoded SafeText %q (%v) is not the Raw answer %q", got, ok, raw.Description)
 		}
 	})
+}
+
+// safeTextRules are FuzzSafeText's rules.
+const safeTextRules = "0\tubyte\tx\t%c\n>1\tstring\tx\t\\b, %s\n>0\tregex\t[^\\n]+\t\\b, %s\n"
+
+// safeTextSeeds are FuzzSafeText's seed arguments.
+func safeTextSeeds() [][]any {
+	var seeds [][]any
+	for _, s := range []string{"<a href='x'>", "\x1b[31m\\x", "\xff\xfe\x00z", "caf\xc3\xa9 \"q\" `b` &amp;"} {
+		seeds = append(seeds, []any{[]byte(s)})
+	}
+	return seeds
 }
 
 // unescapeSafeText reverses SafeText's escaping: each backslash starts \xHH.
