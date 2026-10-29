@@ -51,7 +51,7 @@ func (p *lineParser) getInteger() error {
 		return p.errorf("integer value read out of sequence")
 	}
 	r := p.rec // rec
-	ull, end, ok := strtoull(p.line, p.i, 0)
+	ull, end, ok, erange := strtoullRange(p.line, p.i, 0)
 	if !ok {
 		return p.errorf("unparsable number `" + string(p.line[p.i:]) + "'")
 	}
@@ -68,7 +68,9 @@ func (p *lineParser) getInteger() error {
 		return p.errorf("overflow for numeric type `" + typeName(r.typ) +
 			"' value " + strconv.FormatUint(ull, 16))
 	}
-	p.i = eatSize(p.line, end)
+	if !erange { // on ERANGE the reference leaves the numeral to the description
+		p.i = eatSize(p.line, end)
+	}
 	return nil
 }
 

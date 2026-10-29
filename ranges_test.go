@@ -123,3 +123,28 @@ func TestMarshalRefusesLongFields(t *testing.T) {
 		t.Error("Marshal accepted a 65546-byte SourceDir")
 	}
 }
+
+// TestNumeralsPast64Bits: a numeral past 64 bits saturates as strtoull
+// does, where it used to fail to compile. As an offset, range or mask it
+// is then the saturated value; as a test value the reference's ERANGE
+// leaves it in the description. The answers are file 5.48's.
+func TestNumeralsPast64Bits(t *testing.T) {
+	for _, c := range []struct{ name, rules, input, want string }{ // numeralCase
+		{"offset", "99999999999999999999\x09byte\x09x\x09OFF\x0a", "\xff\x01abc", "data"},
+		{"range", "0\x09string/99999999999999999999\x09\\x05\x09R\x0a", "\x05\x01abc", "R"},
+		{"mask", "0\x09byte&0x1ffffffffffffffff\x09=0xff\x09MASK\x0a", "\xff\x01abc", "MASK"},
+		{"value", "0\x09byte\x0999999999999999999999\x09VALUE\x0a", "\xff\x01abc", "99999999999999999999\\011VALUE"},
+		{"value_eq", "0\x09byte\x09=99999999999999999999\x09VALUE\x0a", "\xff\x01abc", "99999999999999999999\\011VALUE"},
+		{"value_hex", "0\x09byte\x090x1ffffffffffffffff\x09V\x0a", "\xff\x01abc", "0x1ffffffffffffffff\\011V"},
+		{"value_negative", "0\x09byte\x09-99999999999999999999\x09V\x0a", "\xff\x01abc", "-99999999999999999999\\011V"},
+		{"value_no_match", "0\x09byte\x0999999999999999999999\x09VALUE\x0a", "\x05\x01abc", "data"},
+	} {
+		db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(c.rules)}}, CompileOptions{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := db.Identify([]byte(c.input)).Description; got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}

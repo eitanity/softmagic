@@ -68,12 +68,12 @@ func digitValue(c byte, base uint64) (uint64, bool) {
 // unsignedNumber is the digit-scanning core shared by strtoul and strtoull
 // with base 0 or 10: it accepts leading whitespace and a sign, a 0x prefix
 // (base 0 only), and returns the magnitude, whether a '-' was seen, the
-// index after the last digit and whether any digit was consumed. Overflow
-// of the magnitude reports ok=false, which the callers treat as a parse
-// error (the reference leaves the cursor in place on ERANGE).
-func unsignedNumber(s []byte, i int, base uint64) (mag uint64, neg bool, end int, ok bool) { // text
+// index after the last digit, whether any digit was consumed, and whether
+// the magnitude overflowed. As in C, an overflowing magnitude is
+// 2^64-1 and every digit is still consumed; over is C's ERANGE.
+func unsignedNumber(s []byte, i int, base uint64) (mag uint64, neg bool, end int, ok, over bool) { // text
 	if !invariant.Check(base == 0 || base == 8 || base == 10 || base == 16, "supported base") {
-		return 0, false, i, false
+		return 0, false, i, false, false
 	}
 	i = eatSpace(s, i)
 	if i < len(s) && (s[i] == '+' || s[i] == '-') {
@@ -86,15 +86,16 @@ func unsignedNumber(s []byte, i int, base uint64) (mag uint64, neg bool, end int
 	start := i
 	for ; i < len(s) && isDigitIn(s[i], base); i++ {
 		d, _ := digitValue(s[i], base)
-		if mag > (^uint64(0)-d)/base {
-			return 0, neg, start, false
+		if over || mag > (^uint64(0)-d)/base {
+			mag, over = math.MaxUint64, true
+			continue
 		}
 		mag = mag*base + d
 	}
 	if i == start {
-		return 0, neg, start, false
+		return 0, neg, start, false, false
 	}
-	return mag, neg, i, true
+	return mag, neg, i, true, over
 }
 
 func isDigitIn(c byte, base uint64) bool {
@@ -123,30 +124,39 @@ func at(s []byte, i int) byte {
 }
 
 // strtoull returns the two's-complement wrap of a negative magnitude, as C's
-// strtoull does.
+// strtoull does, and 2^64-1 for a magnitude past 64 bits of either sign.
 func strtoull(s []byte, i int, base uint64) (v uint64, end int, ok bool) {
+	v, end, ok, _ = strtoullRange(s, i, base)
+	return v, end, ok
+}
+
+// strtoullRange is strtoull that also reports C's ERANGE.
+func strtoullRange(s []byte, i int, base uint64) (v uint64, end int, ok, erange bool) {
 	if !invariant.Check(i >= 0, "cursor non-negative") ||
 		!invariant.Check(i <= len(s), "cursor within the text") {
-		return 0, len(s), false
+		return 0, len(s), false, false
 	}
-	mag, neg, end, ok := unsignedNumber(s, i, base)
-	if !ok {
-		return 0, end, false
+	mag, neg, end, ok, over := unsignedNumber(s, i, base)
+	switch {
+	case !ok:
+		return 0, end, false, false
+	case over:
+		return math.MaxUint64, end, true, true
+	case neg:
+		return -mag, end, true, false
+	default:
+		return mag, end, true, false
 	}
-	if neg {
-		return -mag, end, true
-	}
-	return mag, end, true
 }
 
 // strtol returns the signed value clamped to the int64 range, as C's strtol
-// does on a 64-bit long.
+// does on a 64-bit long, a magnitude past 64 bits included.
 func strtol(s []byte, i int, base uint64) (v int64, end int, ok bool) {
 	if !invariant.Check(i >= 0, "cursor non-negative") ||
 		!invariant.Check(i <= len(s), "cursor within the text") {
 		return 0, len(s), false
 	}
-	mag, neg, end, ok := unsignedNumber(s, i, base)
+	mag, neg, end, ok, _ := unsignedNumber(s, i, base)
 	if !ok {
 		return 0, end, false
 	}
