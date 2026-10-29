@@ -125,6 +125,9 @@ from a reader (`FuzzIdentify`, `FuzzIdentifyAt`), the rule compiler with joined 
 databases (`FuzzCompile`), the compiled-database decoder (`FuzzLoad`, `FuzzLoadFields`), and
 files built from typed fields, so that offsets, sizes and lengths reach their boundary values:
 ELF headers and tables (`FuzzELF`), Composite Document File headers and chains (`FuzzCDF`),
-nested ASN.1 DER lengths (`FuzzDER`) and length-prefixed strings (`FuzzPString`).
+nested ASN.1 DER lengths (`FuzzDER`) and length-prefixed strings (`FuzzPString`). `FuzzRule`
+builds a rule from typed fields (type, offset form, range, flags, value) and runs it on fuzzed
+input; it also checks that a numeral past 64 bits reads as `file` reads it, and that rules run
+again through `indirect` answer as they do over the same bytes at the start of the file.
 `make fuzz` runs each of them on amd64 and 386, with assertions on and as released, and every
 fuzzed call fails if it allocates more than 64 MiB or takes more than 2 seconds.
