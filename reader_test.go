@@ -121,3 +121,27 @@ func TestELFReadsBeyondWindow(t *testing.T) {
 		t.Errorf("short count with no error: %q, want the failed-read answer, %q", got, want)
 	}
 }
+
+// errReader fails every read with err.
+type errReader struct{ err error }
+
+func (e errReader) ReadAt([]byte, int64) (int, error) { return 0, e.err }
+
+// TestIdentifyAtReadError: a window the reader fails to read is reported
+// with its error and TruncRead, apart from a classification, so that a
+// caller can say the input was unreadable as file does.
+func TestIdentifyAtReadError(t *testing.T) {
+	db := compileMagdir(t) // database
+	eio := errors.New("input/output error")
+	for _, o := range []Options{{}, {Continue: true}} {
+		r := db.IdentifyAt(context.Background(), errReader{eio}, 4096, o)
+		if !errors.Is(r.Examined.ReadError, eio) || r.Examined.Truncated != TruncRead || r.Description != "data" {
+			t.Errorf("continue %v: error %v, truncated %q, %q; want %v, %q, data",
+				o.Continue, r.Examined.ReadError, r.Examined.Truncated, r.Description, eio, TruncRead)
+		}
+	}
+	r := db.IdentifyAt(context.Background(), errReader{io.EOF}, 4096, Options{})
+	if r.Examined.ReadError != nil || r.Examined.Truncated != "" || r.Description != "empty" {
+		t.Errorf("EOF at once: error %v, truncated %q, %q; want an empty input", r.Examined.ReadError, r.Examined.Truncated, r.Description)
+	}
+}

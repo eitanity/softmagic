@@ -141,6 +141,11 @@ type Examined struct {
 	// "search", "regex", "time", "output" or "invariant" (an internal
 	// consistency check failed and the entry under evaluation was skipped).
 	Truncated string
+	// ReadError is the error IdentifyAt's reader returned for the window,
+	// when it read fewer bytes than asked and the error is not io.EOF.
+	// Nothing was identified: Truncated is TruncRead and the answer is
+	// the default, "data". file reports such an input as unreadable.
+	ReadError error
 	// DatabaseHash is the hash of the Magdir source the database was
 	// compiled from.
 	DatabaseHash string
@@ -180,4 +185,7 @@ const (
 	TruncIndirect = "indirect"
 	TruncName     = "name"
 	TruncELF      = "elf"
+	// TruncRead is a window IdentifyAt could not read; see
+	// Examined.ReadError.
+	TruncRead = "read"
 )

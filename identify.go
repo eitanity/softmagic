@@ -72,7 +72,9 @@ func (db *Database) IdentifyAt(ctx context.Context, r io.ReaderAt, size int64, o
 		n = int64(got)
 	default:
 		db.pool.put(s)
-		return invariantResult(o)
+		res := invariantResult(o)
+		res.Examined.Truncated, res.Examined.ReadError = TruncRead, err
+		return res
 	}
 	s.buf, s.src, s.srcSize = s.inbuf[:n], r, size
 	res := s.identify()
