@@ -349,7 +349,8 @@ func FuzzRule(f *testing.F) {
 
 // ruleSeedArgs are FuzzRule's seed arguments: each of ruleSeeds with a
 // binary input and with a text one, since a rule whose test value is
-// printable runs only on text, as in the reference.
+// printable runs only on text, as in the reference; and the first
+// with each numeric field at its boundary values.
 func ruleSeedArgs() [][]any {
 	inputs := []string{"\x80\x00\x00\x00hello world\x00\x02\x01\x050\x03\x02\x01\x05abcdefgh hello world\n",
 		"hello world, abcdefgh hello world\n"}
@@ -360,7 +361,7 @@ func ruleSeedArgs() [][]any {
 				r.value, r.desc, []byte(in)})
 		}
 	}
-	return seeds
+	return append(seeds, boundarySeeds(seeds[0])...)
 }
 
 // ruleFromArgs is the rule FuzzRule's first eight arguments describe,

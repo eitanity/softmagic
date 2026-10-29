@@ -572,7 +572,8 @@ func FuzzDER(f *testing.F) {
 	})
 }
 
-// derSeeds are FuzzDER's seed arguments.
+// derSeeds are FuzzDER's seed arguments, the first also with each
+// numeric field at its boundary values.
 func derSeeds() [][]any {
 	// A 512-bit key pair's version, modulus and exponent, and a fourth
 	// element: the reference matches the key only when its length is in
@@ -589,7 +590,7 @@ func derSeeds() [][]any {
 	if cert, err := os.ReadFile("testdata/corpus/sample-x509-der.testfile"); err == nil {
 		seeds = append(seeds, []any{uint8(0x30), uint8(0), uint8(0), uint8(0), uint64(0), cert})
 	}
-	return seeds
+	return append(seeds, boundarySeeds(seeds[0])...)
 }
 
 // pstringWidth is a pstring length width: the flag, and the bytes the
@@ -660,7 +661,8 @@ func FuzzPString(f *testing.F) {
 	})
 }
 
-// pstringSeeds are FuzzPString's seed arguments.
+// pstringSeeds are FuzzPString's seed arguments, the first and the last
+// (a JPEG comment) also with each numeric field at its boundary values.
 func pstringSeeds() [][]any {
 	var seeds [][]any
 	for _, c := range []struct {
@@ -673,7 +675,7 @@ func pstringSeeds() [][]any {
 	for _, v := range []uint32{0, 1, 10} {
 		seeds = append(seeds, []any{uint8(1), true, v, true, []byte("AAAAAAAA")})
 	}
-	return seeds
+	return append(append(seeds, boundarySeeds(seeds[0])...), boundarySeeds(seeds[len(seeds)-1])...)
 }
 
 // pstringCase is the file a FuzzPString input describes, and the index

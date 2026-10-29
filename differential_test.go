@@ -11,6 +11,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -69,6 +70,43 @@ func fuzzSeeds(f *testing.F, seeds [][]any) {
 	}
 }
 
+// boundarySeeds are base with one numeric argument at a time set to each
+// of its type's boundaryValues other than the one base has.
+func boundarySeeds(base []any) [][]any {
+	var seeds [][]any
+	for i, x := range base {
+		for _, v := range boundaryValues(x) {
+			if v != x {
+				s := append([]any{}, base...)
+				s[i] = v
+				seeds = append(seeds, s)
+			}
+		}
+	}
+	return seeds
+}
+
+// boundaryValues are 0, 1, -1, 2^31-1, 2^31, 2^32-1, 2^63 and 2^64-1 in
+// x's type, cut to its width, with the width's own largest and smallest
+// signed values; nil when x is not a number.
+func boundaryValues(x any) []any {
+	switch x.(type) {
+	case uint8:
+		return []any{uint8(0), uint8(1), uint8(math.MaxInt8), uint8(math.MaxInt8 + 1), uint8(math.MaxUint8)}
+	case uint16:
+		return []any{uint16(0), uint16(1), uint16(math.MaxInt16), uint16(math.MaxInt16 + 1), uint16(math.MaxUint16)}
+	case uint32:
+		return []any{uint32(0), uint32(1), uint32(math.MaxInt32), uint32(math.MaxInt32 + 1), uint32(math.MaxUint32)}
+	case uint64:
+		return []any{uint64(0), uint64(1), uint64(math.MaxInt32), uint64(math.MaxInt32 + 1), uint64(math.MaxUint32),
+			uint64(math.MaxInt64), uint64(math.MaxInt64 + 1), uint64(math.MaxUint64)}
+	case int64:
+		return []any{int64(0), int64(1), int64(-1), int64(math.MaxInt32), int64(math.MaxInt32 + 1),
+			int64(math.MaxUint32), int64(math.MaxInt64), int64(math.MinInt64)}
+	}
+	return nil
+}
+
 // argReader reads a fuzz input's arguments in order. ok turns false at
 // the first that is missing or of another type.
 type argReader struct {
@@ -121,12 +159,14 @@ func diffSafeText(args []any) ([]diffCase, bool) {
 	return []diffCase{{rules: safeTextRules, data: data}}, a.done()
 }
 
+// elfSeedArgs are FuzzELF's seed arguments: elfSeeds, and the first
+// with each numeric field at its boundary values.
 func elfSeedArgs() [][]any {
 	var seeds [][]any
 	for _, e := range elfSeeds() {
 		seeds = append(seeds, elfArgs(&e))
 	}
-	return seeds
+	return append(seeds, boundarySeeds(seeds[0])...)
 }
 
 func diffELF(args []any) ([]diffCase, bool) {
@@ -134,12 +174,14 @@ func diffELF(args []any) ([]diffCase, bool) {
 	return []diffCase{{data: elfImage(&e), size: int64(e.fileSize), stock: true}}, ok
 }
 
+// cdfSeedArgs are FuzzCDF's seed arguments: cdfSeeds, and the first
+// with each numeric field at its boundary values.
 func cdfSeedArgs() [][]any {
 	var seeds [][]any
 	for _, c := range cdfSeeds() {
 		seeds = append(seeds, cdfArgs(&c))
 	}
-	return seeds
+	return append(seeds, boundarySeeds(seeds[0])...)
 }
 
 func diffCDF(args []any) ([]diffCase, bool) {
