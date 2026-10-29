@@ -148,3 +148,30 @@ func TestNumeralsPast64Bits(t *testing.T) {
 		}
 	}
 }
+
+// TestRegionInIndirectFrame: a search, regex or der line run again by
+// indirect four bytes in reads the frame's bytes, where its region used
+// to start four bytes early and miss the frame's last bytes. The answers
+// are file 5.48's.
+func TestRegionInIndirectFrame(t *testing.T) {
+	const marker = "0\tstring\tIND:\tIND:\n!:strength +255\n>4\tindirect\tx\n"
+	keyPair := "\x30\x82\x00\x50\x02\x01\x00\x02\x41\x00" + string(make([]byte, 64)) +
+		"\x02\x03\x01\x00\x01\x02\x03\x01\x02\x03"
+	for _, c := range []struct{ name, rules, input, want string }{ // frameCase
+		{"search", "0\tsearch/b/100\tworld\tW\n", "IND:\x05hello world", "IND:W"},
+		{"search_then_string", "0\tsearch/b/100\thello\tH\n>&1\tstring\twor\t\\b, then wor\n",
+			"IND:\x05hello world", "IND:H, then wor"},
+		{"search_printed", "0\tsearch/b/100\tworld\tW %s\n", "IND:\x05hello world\n", "IND:W \\005hello"},
+		{"regex", "0\tregex/b\twor\tRX\n", "IND:\x05hello world", "IND:RX"},
+		{"der", "0\tder\tseq\tSEQ\n>&0\tder\tint1=00\t\\b, version 0\n>&0\tder\tint65=x\t\\b, modulus\n" +
+			">&0\tder\tint3=010001\t\\b, exponent 65537\n", "IND:" + keyPair, "IND:SEQ, version 0, modulus, exponent 65537"},
+	} {
+		db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(marker + c.rules)}}, CompileOptions{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := db.Identify([]byte(c.input)).Description; got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}

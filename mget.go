@@ -155,14 +155,14 @@ func (s *scan) mgetLine(m *record, f *frame) (int, bool) { // frame
 // copied, which is then not converted.
 func (s *scan) copyValue(m *record, f *frame, win []byte) (uint32, bool) { // magicLine
 	offset := s.offset
-	if !s.mcopy(m, m.flag&flagIndir != 0, win, offset+f.o) {
+	if !s.mcopy(m, m.flag&flagIndir != 0, win, f.base, offset+f.o) {
 		return 0, false
 	}
 	if m.flag&flagIndir == 0 {
 		return offset, true
 	}
 	offset, ok := s.indirectOffset(m, f, win, offset)
-	if !ok || !s.mcopy(m, false, win, offset) {
+	if !ok || !s.mcopy(m, false, win, f.base, offset) {
 		return 0, false
 	}
 	s.offset = offset
@@ -249,9 +249,10 @@ func (s *scan) enoughData(m *record, nbytes int, offset uint32) bool { // magicL
 
 // mcopy copies the bytes the test reads into s.value, or for search,
 // regex and der sets up the search region. The copy is the reference's:
-// 128 bytes (or the string range) from offset, zero-padded.
-func (s *scan) mcopy(m *record, indir bool, win []byte, offset uint32) bool { // magicLine
-	if !invariant.Check(len(win) <= len(s.buf), "copy source is the window") {
+// 128 bytes (or the string range) from offset, zero-padded. win is
+// s.buf[base:].
+func (s *scan) mcopy(m *record, indir bool, win []byte, base int, offset uint32) bool { // magicLine
+	if !invariant.Check(base >= 0 && base+len(win) <= len(s.buf), "copy source is the window") {
 		s.truncate(TruncInvariant)
 		return false
 	}
@@ -260,10 +261,10 @@ func (s *scan) mcopy(m *record, indir bool, win []byte, offset uint32) bool { //
 	if !indir {
 		switch m.typ {
 		case tDer, tSearch:
-			s.setSearchRegion(win, offset)
+			s.setSearchRegion(win, base, offset)
 			return true
 		case tRegex:
-			s.setRegexRegion(m, win, offset)
+			s.setRegexRegion(m, win, base, offset)
 			return true
 		case tBeString16, tLeString16:
 			return s.copyString16(m, win, offset)
@@ -286,13 +287,16 @@ func (s *scan) mcopy(m *record, indir bool, win []byte, offset uint32) bool { //
 		return true
 	}
 	n := copy(s.value[:size], win[offset:])
-	s.noteRead(intFromU32(offset) + n)
+	s.noteRead(base + intFromU32(offset) + n)
 	return true
 }
 
-// setSearchRegion is mcopy's FILE_SEARCH/FILE_DER case.
-func (s *scan) setSearchRegion(win []byte, offset uint32) {
-	if !invariant.Check(len(win) <= len(s.buf), "region within the buffer") {
+// setSearchRegion is mcopy's FILE_SEARCH/FILE_DER case. The region's
+// start indexes s.buf, so a search in an indirect frame (win at base)
+// runs over the frame's bytes; its offset, like the reference's, counts
+// from the frame's start.
+func (s *scan) setSearchRegion(win []byte, base int, offset uint32) {
+	if !invariant.Check(base >= 0 && base+len(win) <= len(s.buf), "region within the buffer") {
 		s.truncate(TruncInvariant)
 		s.search = searchState{}
 		return
@@ -301,14 +305,15 @@ func (s *scan) setSearchRegion(win []byte, offset uint32) {
 	if int64(offset) < int64(len(win)) {
 		off = intFromU32(offset)
 	}
-	s.search = searchState{start: off, length: len(win) - off, offset: off, valid: true}
+	s.search = searchState{start: base + off, length: len(win) - off, offset: off, valid: true}
 }
 
 // setRegexRegion is mcopy's FILE_REGEX case: the region is bounded by the
-// rule's byte or line count and by regexMax.
-func (s *scan) setRegexRegion(m *record, win []byte, offset uint32) { // magicLine
+// rule's byte or line count and by regexMax. Its start indexes s.buf, as
+// in setSearchRegion.
+func (s *scan) setRegexRegion(m *record, win []byte, base int, offset uint32) { // magicLine
 	if !invariant.Check(m.typ == tRegex, "regex line") ||
-		!invariant.Check(len(win) <= len(s.buf), "region within the buffer") {
+		!invariant.Check(base >= 0 && base+len(win) <= len(s.buf), "region within the buffer") {
 		s.truncate(TruncInvariant)
 		s.search = searchState{}
 		return
@@ -338,8 +343,8 @@ func (s *scan) setRegexRegion(m *record, win []byte, offset uint32) { // magicLi
 		linecnt = int64(len(region)) + 1
 	}
 	last := regexLineLimit(region, intFromI64(linecnt))
-	s.search = searchState{start: off, length: last, offset: off, valid: true}
-	s.noteRead(off + last)
+	s.search = searchState{start: base + off, length: last, offset: off, valid: true}
+	s.noteRead(base + off + last)
 }
 
 // regexLineLimit reproduces the line-counting loop of mcopy: it returns
