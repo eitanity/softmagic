@@ -6,6 +6,7 @@ package softmagic
 import (
 	"bytes"
 	"context"
+	"math"
 	"os"
 	"testing"
 )
@@ -68,5 +69,35 @@ func TestIdentifyAtCDFBeyondWindow(t *testing.T) {
 	at := db.IdentifyAt(context.Background(), bytes.NewReader(data), int64(len(data)), Options{MaxBytes: 1024})
 	if at.Description != full.Description || at.MIME != full.MIME {
 		t.Errorf("IdentifyAt with a 1 KiB window:\n got %q %q\nwant %q %q", at.Description, at.MIME, full.Description, full.MIME)
+	}
+}
+
+// TestELFReadPastEnd: a segment or section name that starts past the end
+// of the file reads as nothing, as pread returns 0 bytes there, and only
+// an offset whose sum with the length passes MaxInt64 fails, as Linux's
+// pread refuses it. The answers are file 5.48's for the first ELF seed
+// with one field changed.
+func TestELFReadPastEnd(t *testing.T) {
+	db := compileMagdir(t) // database
+	const exec = "ELF 64-bit LSB executable, x86-64, version 1 (SYSV), "
+	for _, c := range []struct { // pastEndCase
+		name string
+		mod  func(*elfFields)
+		want string
+	}{
+		{"interpreter past the end", func(e *elfFields) { e.phOffB = math.MaxInt32 + 1 },
+			exec + "for GNU/Linux 3.2.0, statically linked, interpreter *empty*, no section header"},
+		{"note past the end", func(e *elfFields) { e.phOffA = math.MaxUint32 },
+			exec + "statically linked, interpreter *empty*, no section header"},
+		{"interpreter end past MaxInt64", func(e *elfFields) { e.phOffB = math.MaxInt64 },
+			exec + "for GNU/Linux 3.2.0, can't read section at 9223372036854775807, no section header"},
+		{"section name past the end", func(e *elfFields) { e.shnum = 1 },
+			exec + "statically linked, interpreter /lib64/ld-linux-x86-64.so.2, stripped"},
+	} {
+		e := elfSeeds()[0]
+		c.mod(&e)
+		if got := db.Identify(elfImage(&e)).Description; got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
 	}
 }

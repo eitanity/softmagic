@@ -14,6 +14,7 @@ package softmagic
 import (
 	"errors"
 	"io"
+	"math"
 	"strconv"
 
 	"code.eitanity.com/softmagic/internal/invariant"
@@ -617,18 +618,20 @@ func (s *scan) readAt(off int64, n int) ([]byte, bool) { // length
 }
 
 // readUpTo returns up to n bytes at off, short at the end of the input as
-// pread is; false only when nothing can be read.
+// pread is: nothing at or past the end, and false only for what Linux's
+// pread refuses, a negative offset or one whose sum with n passes
+// MaxInt64, or for a failed read.
 func (s *scan) readUpTo(off int64, n int) ([]byte, bool) { // maxLength
 	if !invariant.Check(n >= 0, "length non-negative") {
 		s.truncate(TruncInvariant)
 		return nil, false
 	}
 	size := s.inputSize()
-	if off < 0 || off >= size {
-		if off == size {
-			return nil, true
-		}
+	if off < 0 || off > math.MaxInt64-int64(n) {
 		return nil, false
+	}
+	if off >= size {
+		return nil, true
 	}
 	if off+int64(n) > size {
 		n = intFromI64(size - off)
