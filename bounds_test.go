@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"code.eitanity.com/softmagic/internal/invariant"
 	"testing/fstest"
 	"time"
 )
@@ -281,5 +283,31 @@ func TestAllocations(t *testing.T) {
 	t.Logf("allocs per Identify: %.1f", allocs)
 	if allocs > 6 {
 		t.Errorf("allocs per Identify = %.1f, want at most 6 (the Result's own)", allocs)
+	}
+}
+
+// TestShortIntegerRead: an integer reader given fewer bytes than its
+// width reads them zero-extended in a release build, where
+// encoding/binary panicked with an index out of range. In an assertion
+// build the reader's check fails instead, as it should.
+func TestShortIntegerRead(t *testing.T) {
+	if invariant.Enabled {
+		t.Skip("a short read fails its check in an assertion build")
+	}
+	b := []byte{0x01, 0x02, 0x03}
+	for _, c := range []struct { // readCase
+		read func() uint64
+		name string
+		want uint64
+	}{
+		{func() uint64 { return value(le16(b[:1])) }, "le16", 0x01},
+		{func() uint64 { return value(be32(b)) }, "be32", 0x01020300},
+		{func() uint64 { return value(le64(b)) }, "le64", 0x030201},
+		{func() uint64 { return value(me32(b)) }, "me32", 0x02010003},
+		{func() uint64 { return uint64(dbLE32(nil)) }, "dbLE32", 0},
+	} {
+		if got := c.read(); got != c.want {
+			t.Errorf("%s: %#x, want %#x", c.name, got, c.want)
+		}
 	}
 }

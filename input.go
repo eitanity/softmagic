@@ -6,6 +6,8 @@ package softmagic
 import (
 	"encoding/binary"
 	"math"
+
+	"code.eitanity.com/softmagic/internal/invariant"
 )
 
 // Integers read from the input file have the types below. Outside this
@@ -21,27 +23,54 @@ type (
 	in64 uint64
 )
 
-// The readers of input integers. The byte order is the file's.
+// The readers of input integers. The byte order is the file's. Each
+// caller passes the bytes the integer needs; encoding/binary panics on
+// fewer, so a reader given fewer reads them zero-extended instead, after
+// a failed check.
 
-func le16(b []byte) in16 { return in16(binary.LittleEndian.Uint16(b)) }
-func le32(b []byte) in32 { return in32(binary.LittleEndian.Uint32(b)) }
-func le64(b []byte) in64 { return in64(binary.LittleEndian.Uint64(b)) }
-func be16(b []byte) in16 { return in16(binary.BigEndian.Uint16(b)) }
-func be32(b []byte) in32 { return in32(binary.BigEndian.Uint32(b)) }
-func be64(b []byte) in64 { return in64(binary.BigEndian.Uint64(b)) }
+func le16(b []byte) in16 { return in16(binary.LittleEndian.Uint16(read2(b))) }
+func le32(b []byte) in32 { return in32(binary.LittleEndian.Uint32(read4(b))) }
+func le64(b []byte) in64 { return in64(binary.LittleEndian.Uint64(read8(b))) }
+func be16(b []byte) in16 { return in16(binary.BigEndian.Uint16(read2(b))) }
+func be32(b []byte) in32 { return in32(binary.BigEndian.Uint32(read4(b))) }
+func be64(b []byte) in64 { return in64(binary.BigEndian.Uint64(read8(b))) }
 
 // me32 is the PDP-11 word order: bytes 1 0 3 2.
 func me32(b []byte) in32 {
+	b = read4(b)
 	return in32(uint32(b[1])<<24 | uint32(b[0])<<16 | uint32(b[3])<<8 | uint32(b[2]))
+}
+
+// read2, read4 and read8 are b when it holds the bytes an integer of
+// that width needs, and b zero-extended to them otherwise.
+func read2(b []byte) []byte {
+	if !invariant.Check(len(b) >= 2, "two bytes to read") {
+		return append(append(make([]byte, 0, 2), b...), make([]byte, 2-len(b))...)
+	}
+	return b
+}
+
+func read4(b []byte) []byte {
+	if !invariant.Check(len(b) >= 4, "four bytes to read") {
+		return append(append(make([]byte, 0, 4), b...), make([]byte, 4-len(b))...)
+	}
+	return b
+}
+
+func read8(b []byte) []byte {
+	if !invariant.Check(len(b) >= 8, "eight bytes to read") {
+		return append(append(make([]byte, 0, 8), b...), make([]byte, 8-len(b))...)
+	}
+	return b
 }
 
 // The readers of integers in a rule's value or the compiled database,
 // which are not input: the rules are trusted like code, and Load
 // checks every record it accepts.
 
-func dbLE16(b []byte) uint16 { return binary.LittleEndian.Uint16(b) }
-func dbLE32(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
-func dbLE64(b []byte) uint64 { return binary.LittleEndian.Uint64(b) }
+func dbLE16(b []byte) uint16 { return binary.LittleEndian.Uint16(read2(b)) }
+func dbLE32(b []byte) uint32 { return binary.LittleEndian.Uint32(read4(b)) }
+func dbLE64(b []byte) uint64 { return binary.LittleEndian.Uint64(read8(b)) }
 
 // value is an input integer as a matched value: libmagic compares,
 // masks and prints these in 64-bit unsigned arithmetic, wrapping as C

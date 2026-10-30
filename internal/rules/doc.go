@@ -9,6 +9,6 @@
 // 32-bit host would wrap, pointer and func types, package-level state,
 // build tags and suppression comments. It uses only
 // go/ast, go/parser, go/types and go/importer from the standard library, so
-// it adds nothing to go.mod. The checks bind this module's non-test
-// code; the standard library is called, not audited.
+// it adds nothing to go.mod. The checks read this module's non-test
+// code; the standard library's source is outside them.
 package rules
