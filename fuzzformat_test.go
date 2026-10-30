@@ -143,6 +143,7 @@ func fuzzStructured(t *testing.T, db *Database, file *blockFile) { // database
 		t.Fatalf("a slice and a reader over the same bytes differ:\n %q %q\n %q %q",
 			r.Description, r.MIME, at.Description, at.MIME)
 	}
+	fuzzHeld(t, db, data, r, st, at)
 }
 
 // u32 is a test-built length or offset as a 32-bit field.

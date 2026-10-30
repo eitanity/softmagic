@@ -57,6 +57,7 @@ func FuzzSafeText(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		safe := db.IdentifyWith(context.Background(), data, Options{SafeText: true})
 		raw := db.IdentifyWith(context.Background(), data, Options{Raw: true})
+		fuzzHeld(t, db, data, safe, raw)
 		for i := 0; i < len(safe.Description); i++ {
 			if c := safe.Description[i]; !cIsPrint(c) || (c != '\\' && !safeTextByte(c) && c != ',') {
 				t.Fatalf("byte %#x left in a SafeText answer: %q", c, safe.Description)

@@ -169,7 +169,9 @@ func FuzzLoad(f *testing.F) {
 		var err error
 		fuzzBounded(t, "Load", func() { db, err = Load(data) })
 		if err == nil {
-			fuzzBounded(t, "Identify with a loaded database", func() { db.Identify(data) })
+			var r Result
+			fuzzBounded(t, "Identify with a loaded database", func() { r = db.Identify(data) })
+			fuzzHeld(t, db, data, r)
 		}
 	})
 }
@@ -209,7 +211,9 @@ func FuzzLoadFields(f *testing.F) {
 			return
 		}
 		for _, in := range [][]byte{blob, []byte("ABCDXY0123456789abcdef"), make([]byte, 64)} {
-			fuzzBounded(t, "Identify with a mutated database", func() { loaded.Identify(in) })
+			var r Result
+			fuzzBounded(t, "Identify with a mutated database", func() { r = loaded.Identify(in) })
+			fuzzHeld(t, loaded, in, r)
 		}
 	})
 }

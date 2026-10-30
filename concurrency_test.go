@@ -95,6 +95,39 @@ func TestRaceOptions(t *testing.T) {
 	wg.Wait()
 }
 
+// TestHeldResultsRace: answers each of 16 goroutines holds are unchanged
+// while the others go on identifying through the same Database, and,
+// under -race, no goroutine's later scan touches memory an earlier answer
+// holds.
+func TestHeldResultsRace(t *testing.T) {
+	db := compileMagdir(t) // database
+	files := corpusFiles(t)
+	o := Options{Continue: true}
+	var wg sync.WaitGroup // waitGroup
+	for g := range 16 {   // goroutine
+		wg.Add(1)
+		go func(g int) { // goroutine
+			defer wg.Done()
+			var held, copies []Result
+			for i := range files {
+				f := files[(i+g)%len(files)]
+				r := db.IdentifyAt(context.Background(), bytes.NewReader(f), int64(len(f)), o)
+				held, copies = append(held, r), append(copies, cloneResult(r))
+			}
+			for i := range files {
+				f := files[(i+g+1)%len(files)]
+				db.IdentifyAt(context.Background(), bytes.NewReader(f), int64(len(f)), o)
+			}
+			for i := range held {
+				if field := changedField(held[i], copies[i]); field != "" {
+					t.Errorf("goroutine %d, answer %d: %s changed by later calls", g, i, field)
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+}
+
 // BenchmarkIdentify runs over the corpus, database compiled once.
 func BenchmarkIdentify(b *testing.B) {
 	db, err := compileFS(os.DirFS("magic/Magdir"), CompileOptions{}) // database

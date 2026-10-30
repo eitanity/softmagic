@@ -47,6 +47,7 @@ func FuzzIdentifyAt(f *testing.F) {
 		case !o.Raw:
 			fuzzEscaped(t, r1)
 		}
+		fuzzHeld(t, db, data, r1)
 		r2 := db.IdentifyAt(ctx, bytes.NewReader(data), size, o)
 		if a, b := fuzzJSON(t, r1), fuzzJSON(t, r2); a != b {
 			t.Fatalf("the same call twice differs:\n %s\n %s", a, b)

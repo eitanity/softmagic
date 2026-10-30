@@ -4,10 +4,13 @@
 package softmagic
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime/metrics"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -60,6 +63,7 @@ func FuzzIdentify(f *testing.F) {
 		if len(data)%2 == 0 && c.Description != r.Description {
 			t.Fatalf("continue changed the description: %q vs %q", c.Description, r.Description)
 		}
+		fuzzHeld(t, db, data, r, c, st)
 		// Exclusions and small limits chosen by the input itself, which
 		// drives the hard-limit errors and the per-mode runs they fall
 		// back to: still never a blank, and a failure always has a message.
@@ -139,6 +143,7 @@ func FuzzCompile(f *testing.F) {
 		if r.Description == "" || r.MIME == "" {
 			t.Fatalf("blank answer: %+v", r)
 		}
+		fuzzHeld(t, db, []byte(rules), r)
 		fuzzJoin(t, base, []byte(rules))
 	})
 }
@@ -244,4 +249,74 @@ func fuzzBounded(t *testing.T, what string, call func()) {
 	if elapsed > fuzzTimeBudget {
 		t.Fatalf("%s took %v, over the %v budget", what, elapsed, fuzzTimeBudget)
 	}
+}
+
+// fuzzHeld fails when a later call on db changes an answer already
+// returned, as it would if any part of a Result shared memory with the
+// buffers the pool hands to the next scan. The later calls read data
+// reversed, so that they need buffers of the same sizes, with every
+// continue list and through a reader as well.
+func fuzzHeld(t *testing.T, db *Database, data []byte, held ...Result) { // database
+	t.Helper()
+	copies := make([]Result, len(held))
+	for i, r := range held {
+		copies[i] = cloneResult(r)
+	}
+	other := slices.Clone(data)
+	slices.Reverse(other)
+	ctx := context.Background()
+	fuzzBounded(t, "Identify with other input", func() {
+		db.IdentifyWith(ctx, other, Options{Continue: true})
+		db.IdentifyAt(ctx, bytes.NewReader(other), int64(len(other)), Options{Continue: true, Raw: true})
+	})
+	for i := range held {
+		if field := changedField(held[i], copies[i]); field != "" {
+			t.Fatalf("answer %d: %s changed by a later call", i, field)
+		}
+	}
+}
+
+// changedField names the first field of a Result that differs between
+// a and b; "" when none does.
+func changedField(a, b Result) string {
+	ac, bc := a.Continued, b.Continued
+	ae, be := a.Examined, b.Examined
+	for _, f := range []struct { // field
+		name  string
+		equal bool
+	}{
+		{"Description", a.Description == b.Description},
+		{"MIME", a.MIME == b.MIME},
+		{"Charset", a.Charset == b.Charset},
+		{"Extensions", slices.Equal(a.Extensions, b.Extensions)},
+		{"Apple", a.Apple == b.Apple},
+		{"Rules", slices.Equal(a.Rules, b.Rules)},
+		{"Phase", a.Phase == b.Phase},
+		{"Continued.Descriptions", slices.Equal(ac.Descriptions, bc.Descriptions)},
+		{"Continued.MIMEs", slices.Equal(ac.MIMEs, bc.MIMEs)},
+		{"Continued.Encodings", slices.Equal(ac.Encodings, bc.Encodings)},
+		{"Continued.Extensions", slices.Equal(ac.Extensions, bc.Extensions)},
+		{"Continued.Apple", slices.Equal(ac.Apple, bc.Apple)},
+		{"Continued.Failures", ac.Failures == bc.Failures},
+		{"Failures", a.Failures == b.Failures},
+		{"Examined", ae.Truncated == be.Truncated && errors.Is(ae.ReadError, be.ReadError) &&
+			ae.DatabaseHash == be.DatabaseHash && ae.ImplementsFile == be.ImplementsFile &&
+			ae.Bytes == be.Bytes && ae.Complete == be.Complete && ae.NeedMore == be.NeedMore},
+		{"Strength", a.Strength == b.Strength},
+	} {
+		if !f.equal {
+			return f.name
+		}
+	}
+	return ""
+}
+
+// cloneResult is r with every slice copied, so that it shares no memory
+// with r.
+func cloneResult(r Result) Result {
+	r.Extensions, r.Rules = slices.Clone(r.Extensions), slices.Clone(r.Rules)
+	c := &r.Continued // continued
+	c.Descriptions, c.MIMEs, c.Encodings = slices.Clone(c.Descriptions), slices.Clone(c.MIMEs), slices.Clone(c.Encodings)
+	c.Extensions, c.Apple = slices.Clone(c.Extensions), slices.Clone(c.Apple)
+	return r
 }
