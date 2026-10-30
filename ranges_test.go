@@ -4,6 +4,7 @@
 package softmagic
 
 import (
+	"encoding/binary"
 	"math"
 	"testing"
 	"testing/fstest"
@@ -190,6 +191,33 @@ func TestValueNotCarriedOver(t *testing.T) {
 	for i := range 3 {
 		if got := db.Identify(input).Description; got != "0 , then 48" {
 			t.Errorf("call %d: %q, want %q", i, got, "0 , then 48")
+		}
+	}
+}
+
+// TestDateYearRange: a date prints as file 5.48 prints it on amd64 and
+// 386, from glibc's asctime_r: years -999 to 9999, unpadded under 1000,
+// and "*Invalid datetime*" outside them, where the year had been padded
+// to four digits and printed past the range, wrapped inside time for the
+// most negative counts.
+func TestDateYearRange(t *testing.T) {
+	for _, c := range []struct { // dateCase
+		want string
+		secs int64
+	}{
+		{"*Invalid datetime*", -93692592001},
+		{"Thu Jan  1 00:00:00 -999", -93692592000},
+		{"Fri Dec 31 23:59:59 -1", -62167219201},
+		{"Sat Jan  1 00:00:00 0", -62167219200},
+		{"Tue Jan  1 00:00:00 999", -30641760000},
+		{"Fri Dec 31 23:59:59 9999", 253402300799},
+		{"*Invalid datetime*", 253402300800},
+		{"*Invalid datetime*", math.MinInt64},
+		{"*Invalid datetime*", -dateSecsBound - 1},
+	} {
+		v := binary.LittleEndian.AppendUint64(nil, bitsOfInt64(c.secs))
+		if got := fmtDateTime(tLeQDate, v); got != c.want {
+			t.Errorf("%d seconds: %q, want %q", c.secs, got, c.want)
 		}
 	}
 }

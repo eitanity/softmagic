@@ -358,14 +358,37 @@ func fmtDateTime(t fileType, v []byte) string { // dateImage
 		}
 		secs = s
 	}
-	if secs > maxCTime {
+	// time.Unix takes any count, but the year of one far outside
+	// asctime's range wraps inside time, differently on 32-bit hosts.
+	if secs > maxCTime || secs < -dateSecsBound {
 		return "*Invalid datetime*"
 	}
 	tm := time.Unix(secs, 0).UTC()
 	if local {
 		tm = tm.Local()
 	}
-	return tm.Format("Mon Jan _2 15:04:05 2006")
+	text, ok := asctime(tm)
+	if !ok {
+		return "*Invalid datetime*"
+	}
+	return text
+}
+
+// dateSecsBound is the largest second count before 1970 a date is
+// converted from: about 34,800 years, well past year -999, the earliest
+// asctime prints.
+const dateSecsBound = 1 << 40
+
+// asctime is asctime_r's text for tm, without the newline. It is false
+// for a year outside -999 to 9999, which glibc's asctime_r refuses; a
+// year under 1000 is printed as %d prints it, unpadded, where Go's 2006
+// pads it to four digits.
+func asctime(tm time.Time) (string, bool) {
+	year := tm.Year()
+	if year < -999 || year > 9999 {
+		return "", false
+	}
+	return tm.Format("Mon Jan _2 15:04:05 ") + strconv.Itoa(year), true
 }
 
 // fmtMSDOSDate is file_fmtdate: strftime "%b %d %Y" of a DOS date.
