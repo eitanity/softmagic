@@ -6,8 +6,10 @@ package softmagic
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"os"
+	"slices"
 	"testing"
 	"testing/fstest"
 )
@@ -19,25 +21,78 @@ import (
 // arguments, which the fuzzer mutates as integers, and build a
 // well-formed file around them.
 
-// sparseFile is a file of size bytes whose first bytes are data and whose
-// rest is zeros, so a field can point gigabytes into a file the fuzzer
-// never has to write.
-type sparseFile struct {
-	data []byte
-	size int64
+// blockFile is a file of size bytes held as the blocks written to it,
+// zeros everywhere else, so a field can place a table gigabytes into a
+// file the fuzzer never writes out. It holds at most blockFileMax bytes
+// of blocks; a write past that, or past size, is left out, as a write
+// past the end of a file of that size would be.
+type blockFile struct {
+	blocks map[int64][]byte // block index: its fileBlock bytes
+	size   int64
 }
 
-func (f sparseFile) ReadAt(p []byte, off int64) (int, error) {
+const (
+	fileBlock    = 4096
+	blockFileMax = 16 << 20
+	// structuredWindow is how much of a blockFile the slice calls get.
+	structuredWindow = 4 << 20
+)
+
+func newBlockFile(size int64) *blockFile {
+	return &blockFile{blocks: map[int64][]byte{}, size: max(size, 0)}
+}
+
+// bytesFile is a blockFile holding data and of its size.
+func bytesFile(data []byte) *blockFile {
+	f := newBlockFile(int64(len(data)))
+	f.put(0, data)
+	return f
+}
+
+// put writes b at off.
+func (f *blockFile) put(off uint64, b []byte) {
+	if off >= bitsOfInt64(f.size) {
+		return
+	}
+	at := int64FromBits(off) // below size, so not negative
+	for len(b) > 0 && at < f.size {
+		blk, ok := f.blocks[at/fileBlock]
+		if !ok {
+			if len(f.blocks) >= blockFileMax/fileBlock {
+				return
+			}
+			blk = make([]byte, fileBlock)
+			f.blocks[at/fileBlock] = blk
+		}
+		n := copy(blk[at%fileBlock:], b[:min(int64(len(b)), f.size-at)])
+		b, at = b[n:], at+int64(n)
+	}
+}
+
+// get is the n bytes at off, zeros past the end.
+func (f *blockFile) get(off uint64, n int) []byte {
+	b := make([]byte, n)
+	if off < bitsOfInt64(f.size) {
+		if _, err := f.ReadAt(b, int64FromBits(off)); err != nil && !errors.Is(err, io.EOF) {
+			return make([]byte, n)
+		}
+	}
+	return b
+}
+
+func (f *blockFile) ReadAt(p []byte, off int64) (int, error) {
 	if off < 0 || off >= f.size {
 		return 0, io.EOF
 	}
-	n := len(p)
-	if int64(n) > f.size-off {
-		n = int(f.size - off)
-	}
+	n := int(min(int64(len(p)), f.size-off))
 	clear(p[:n])
-	if off < int64(len(f.data)) {
-		copy(p[:n], f.data[off:])
+	for i := 0; i < n; {
+		pos := off + int64(i)
+		step := min(n-i, fileBlock-int(pos%fileBlock))
+		if blk, ok := f.blocks[pos/fileBlock]; ok {
+			copy(p[i:i+step], blk[pos%fileBlock:])
+		}
+		i += step
 	}
 	if n < len(p) {
 		return n, io.EOF
@@ -45,14 +100,31 @@ func (f sparseFile) ReadAt(p []byte, off int64) (int, error) {
 	return n, nil
 }
 
-// fuzzStructured runs data through the identify paths and fails on a
+// window is the first structuredWindow bytes of the file, or all of a
+// shorter one.
+func (f *blockFile) window() []byte {
+	return f.get(0, int(min(f.size, structuredWindow)))
+}
+
+// written is the indexes of the blocks written, in order.
+func (f *blockFile) written() []int64 {
+	ks := make([]int64, 0, len(f.blocks))
+	for k := range f.blocks {
+		ks = append(ks, k)
+	}
+	slices.Sort(ks)
+	return ks
+}
+
+// fuzzStructured runs a file's window through the identify paths and fails on a
 // panic, an answer over the resource budget, a blank answer, an
 // unescaped answer, or a slice and a reader over the same bytes that
 // disagree. size is the length IdentifyAt is told the file has; past
 // data it reads zeros.
-func fuzzStructured(t *testing.T, db *Database, data []byte, size int64) { // database
+func fuzzStructured(t *testing.T, db *Database, file *blockFile) { // database
 	t.Helper()
 	ctx := context.Background()
+	data, size := file.window(), file.size
 	var r, st, at Result // result, safeText, readerResult
 	fuzzBounded(t, "Identify", func() { r = db.Identify(data) })
 	if r.Description == "" || r.MIME == "" || r.Charset == "" {
@@ -63,10 +135,7 @@ func fuzzStructured(t *testing.T, db *Database, data []byte, size int64) { // da
 		st = db.IdentifyWith(ctx, data, Options{SafeText: true, Continue: true})
 	})
 	fuzzSafeASCII(t, st)
-	if size < int64(len(data)) {
-		size = int64(len(data))
-	}
-	fuzzBounded(t, "IdentifyAt", func() { at = db.IdentifyAt(ctx, sparseFile{data, size}, size, Options{}) })
+	fuzzBounded(t, "IdentifyAt", func() { at = db.IdentifyAt(ctx, file, size, Options{}) })
 	if at.Description == "" || at.MIME == "" || at.Charset == "" {
 		t.Fatalf("blank answer through a reader of %d bytes: %+v", size, at)
 	}
@@ -78,21 +147,6 @@ func fuzzStructured(t *testing.T, db *Database, data []byte, size int64) { // da
 
 // u32 is a test-built length or offset as a 32-bit field.
 func u32(n int) uint32 { return low32(bitsOfInt64(int64(n))) }
-
-// putAt writes b at off in img, cut at the end of img.
-func putAt(img []byte, off uint64, b []byte) {
-	if off < uint64(len(img)) {
-		copy(img[off:], b)
-	}
-}
-
-// imageLen is n bounded to [lo, hi].
-func imageLen(n uint32, lo, hi int) int {
-	return min(max(int(n), lo), hi)
-}
-
-// The ELF image is at most 256 KiB; a field may point anywhere.
-const elfImageMax = 256 << 10
 
 // elfFields are an ELF file's header, two program headers and two
 // section headers: entry 0 of each table has the A fields, every later
@@ -116,14 +170,14 @@ type elfFields struct {
 // elfImage builds the file: the payload at the A entries' offsets
 // first, then the tables, then the header. The B entries may point into
 // the payload.
-func elfImage(f *elfFields) []byte {
-	img := make([]byte, imageLen(f.fileSize, 64, elfImageMax))
+func elfImage(f *elfFields) *blockFile {
+	img := newBlockFile(int64(max(f.fileSize, 64)))
 	var bo binary.ByteOrder = binary.LittleEndian
 	if f.big {
 		bo = binary.BigEndian
 	}
 	for _, off := range []uint64{f.phOffA, f.shOffA} {
-		putAt(img, off, f.payload)
+		img.put(off, f.payload)
 	}
 	word := func(b []byte, v uint64) { // put
 		if f.class64 {
@@ -156,7 +210,7 @@ func elfImage(f *elfFields) []byte {
 			word(ph[20:], size)
 			bo.PutUint32(ph[24:], 5)
 		}
-		putAt(img, f.phoff+uint64(i*phsize), ph)
+		img.put(f.phoff+uint64(i*phsize), ph)
 	}
 	sh := make([]byte, shsize)
 	for i := range int(min(f.shnum, 64)) {
@@ -173,7 +227,7 @@ func elfImage(f *elfFields) []byte {
 			word(sh[16:], off)
 			word(sh[20:], size)
 		}
-		putAt(img, f.shoff+uint64(i*shsize), sh)
+		img.put(f.shoff+uint64(i*shsize), sh)
 	}
 	h := make([]byte, 64)
 	copy(h, "\x7fELF")
@@ -207,7 +261,7 @@ func elfImage(f *elfFields) []byte {
 		bo.PutUint16(h[50:], f.shstrndx)
 		h = h[:52]
 	}
-	copy(img, h)
+	img.put(0, h)
 	return img
 }
 
@@ -266,7 +320,7 @@ func FuzzELF(f *testing.F) {
 		e, _ := elfFromArgs([]any{class64, big, etype, machine, phnum, shnum, shstrndx, phoff, shoff,
 			phTypeA, phOffA, phSizeA, phVaddrA, phTypeB, phOffB, phSizeB, phVaddrB,
 			shTypeA, shNameA, shOffA, shSizeA, shTypeB, shNameB, shOffB, shSizeB, fileSize, payload})
-		fuzzStructured(t, db, elfImage(&e), int64(fileSize))
+		fuzzStructured(t, db, elfImage(&e))
 	})
 }
 
@@ -295,7 +349,6 @@ func elfFromArgs(args []any) (elfFields, bool) {
 
 // The CDF image is at most 4 MiB, room for the header and three 1 MiB
 // sectors.
-const cdfImageMax = 4 << 20
 
 // cdfFields are a Composite Document File's header and the four chains
 // it is built from, each a run of consecutive sectors ending in an
@@ -375,18 +428,15 @@ func cdfDirEntry(name string, typ uint8, start, size uint32) []byte {
 // in that order, so a table the fields place over a stream is still the
 // table. Sector k starts at (k+1) sectors; a sector or table entry past
 // the image is left out.
-func cdfImage(f *cdfFields) []byte {
+func cdfImage(f *cdfFields) *blockFile {
 	le := binary.LittleEndian
 	shift := min(max(f.secShift, 7), 20)
-	ss := uint64(1) << shift
-	img := make([]byte, imageLen(f.fileSize, 2<<shift, cdfImageMax)) // the header and the SAT at least
+	ss, ssLen := uint64(1)<<shift, 1<<shift
+	img := newBlockFile(max(int64(f.fileSize), 2*int64(ssLen))) // the header and the SAT at least
 	sss := uint64(1) << min(f.shortShift, 20)
 	sector := func(k uint32) uint64 { return (uint64(k) + 1) * ss }
-	table := func(k uint32) []byte { // the sector's bytes in the image
-		off := min(sector(k), uint64(len(img)))
-		return img[off:min(off+ss, uint64(len(img)))]
-	}
-	chain := func(tab []byte, start, n uint32) {
+	chain := func(k, start, n uint32) { // in the table at sector k
+		tab := img.get(sector(k), ssLen)
 		for i := range min(n, 1<<18) {
 			next := uint32(cdfEndChain)
 			if i+1 < n {
@@ -396,33 +446,33 @@ func cdfImage(f *cdfFields) []byte {
 				le.PutUint32(tab[p:], next)
 			}
 		}
+		img.put(sector(k), tab)
 	}
 	long := f.sumSize >= f.minStream
 	sum := cdfSummaryStream(f.propType, f.propCount, f.payload)
 	if long {
-		putAt(img, sector(f.sumStart), sum)
+		img.put(sector(f.sumStart), sum)
 	} else {
-		putAt(img, sector(f.rootStart)+uint64(f.sumStart)*sss, sum)
+		img.put(sector(f.rootStart)+uint64(f.sumStart)*sss, sum)
 	}
 	dir := cdfDirEntry("Root Entry", cdfDirRootStorage, f.rootStart, f.rootLen<<shift)
 	dir = append(dir, cdfDirEntry("\x05SummaryInformation", f.sumType, f.sumStart, f.sumSize)...)
-	putAt(img, sector(f.dirStart), dir)
+	img.put(sector(f.dirStart), dir)
 	if !long {
-		chain(table(f.ssatStart), f.sumStart, low32((uint64(f.sumSize)+sss-1)/sss))
+		chain(f.ssatStart, f.sumStart, low32((uint64(f.sumSize)+sss-1)/sss))
 	}
-	sat := table(0) // every sector free but the chains
+	sat := make([]byte, ssLen) // every sector free but the chains
 	for i := 0; i+4 <= len(sat); i += 4 {
 		le.PutUint32(sat[i:], cdfFreeSect)
 	}
-	chain(sat, f.dirStart, f.dirLen)
-	chain(sat, f.ssatStart, f.ssatLen)
-	chain(sat, f.rootStart, f.rootLen)
+	img.put(sector(0), sat)
+	chain(0, f.dirStart, f.dirLen)
+	chain(0, f.ssatStart, f.ssatLen)
+	chain(0, f.rootStart, f.rootLen)
 	if long {
-		chain(sat, f.sumStart, low32((uint64(f.sumSize)+ss-1)/ss))
+		chain(0, f.sumStart, low32((uint64(f.sumSize)+ss-1)/ss))
 	}
-	if len(sat) >= 4 {
-		le.PutUint32(sat, cdfSATSect)
-	}
+	img.put(sector(0), le.AppendUint32(nil, cdfSATSect))
 	h := make([]byte, 512)
 	le.PutUint64(h, cdfMagic)
 	le.PutUint16(h[0x18:], 0x3e)
@@ -441,14 +491,15 @@ func cdfImage(f *cdfFields) []byte {
 		le.PutUint32(h[0x4c+4*i:], cdfFreeSect)
 	}
 	le.PutUint32(h[0x4c:], 0)
-	copy(img, h)
+	img.put(0, h)
 	return img
 }
 
 // cdfSeeds: documents with a short and a long summary stream, with
-// 512-byte, 4096-byte and 1 MiB sectors, and the 1 MiB-sector header
-// whose short-sector table is a chain of 10000 sectors in a 2 MiB file
-// (SOF-1).
+// 512-byte, 4096-byte and 1 MiB sectors, one of the last with its
+// directory 1000 sectors into a 1008 MiB file, and the 1 MiB-sector
+// header whose short-sector table is a chain of 10000 sectors in a 2 MiB
+// file (SOF-1).
 func cdfSeeds() []cdfFields {
 	title := append(binary.LittleEndian.AppendUint32(nil, 6), "Title\x00\x00\x00"...)
 	return []cdfFields{
@@ -467,6 +518,9 @@ func cdfSeeds() []cdfFields {
 		{secShift: 20, shortShift: 6, numSAT: 1, firstMSAT: cdfEndChain, minStream: 0,
 			dirStart: 1, dirLen: 1, ssatStart: cdfEndChain, rootStart: cdfEndChain, sumStart: 2, sumSize: 512,
 			sumType: cdfDirUserStream, propType: cdfTypeString, propCount: 1, fileSize: 4 << 20, payload: title},
+		{secShift: 20, shortShift: 6, numSAT: 1, firstMSAT: cdfEndChain, minStream: 0,
+			dirStart: 1000, dirLen: 1, ssatStart: cdfEndChain, rootStart: cdfEndChain, sumStart: 2, sumSize: 512,
+			sumType: cdfDirUserStream, propType: cdfTypeString, propCount: 1, fileSize: 1008 << 20, payload: title},
 		{secShift: 20, shortShift: 6, numSAT: 1, firstMSAT: cdfEndChain, minStream: 4096,
 			dirStart: 2, dirLen: 1, ssatStart: 1, ssatLen: 10000, rootStart: cdfEndChain, fileSize: 2 << 20},
 	}
@@ -486,7 +540,7 @@ func FuzzCDF(f *testing.F) {
 		c, _ := cdfFromArgs([]any{secShift, shortShift, numSAT, numMSAT, firstMSAT, minStream,
 			dirStart, dirLen, ssatStart, ssatLen, rootStart, rootLen, sumStart, sumSize,
 			sumType, propType, propCount, fileSize, payload})
-		fuzzStructured(t, db, cdfImage(&c), int64(fileSize))
+		fuzzStructured(t, db, cdfImage(&c))
 	})
 }
 
@@ -568,7 +622,7 @@ func FuzzDER(f *testing.F) {
 	fuzzSeeds(f, derSeeds())
 	f.Fuzz(func(t *testing.T, tag, form, digits, nesting uint8, lie uint64, payload []byte) {
 		data := derFile(tag, form, digits, nesting, lie, payload)
-		fuzzStructured(t, db, data, int64(len(data)))
+		fuzzStructured(t, db, bytesFile(data))
 	})
 }
 
@@ -657,7 +711,7 @@ func FuzzPString(f *testing.F) {
 		if rules >= 0 {
 			db = dbs[rules]
 		}
-		fuzzStructured(t, db, data, int64(len(data)))
+		fuzzStructured(t, db, bytesFile(data))
 	})
 }
 
@@ -706,4 +760,20 @@ func pstringCase(width uint8, j bool, value uint32, jpeg bool, payload []byte) (
 		rules++
 	}
 	return rules, append(data, payload...)
+}
+
+// TestFarCDFLayout: a document whose directory is 1000 sectors of 1 MiB
+// into a 1008 MiB file is built from 1 MiB of blocks and identified as
+// file 5.48 identifies the same file written out sparse.
+func TestFarCDFLayout(t *testing.T) {
+	db := compileMagdir(t) // database
+	f := cdfImage(&cdfSeeds()[4])
+	if held := len(f.blocks) * fileBlock; f.size != 1008<<20 || held > 2<<20 {
+		t.Fatalf("a %d MiB file held in %d KiB of blocks", f.size>>20, held>>10)
+	}
+	var r Result
+	fuzzBounded(t, "IdentifyAt", func() { r = db.IdentifyAt(context.Background(), f, f.size, Options{}) })
+	if want := "Composite Document File V2 Document, Little Endian, Os: Windows, Version 0.10, Title: Title"; r.Description != want {
+		t.Errorf("%q, want %q", r.Description, want)
+	}
 }

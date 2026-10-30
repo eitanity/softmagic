@@ -96,7 +96,7 @@ func TestELFReadPastEnd(t *testing.T) {
 	} {
 		e := elfSeeds()[0]
 		c.mod(&e)
-		if got := db.Identify(elfImage(&e)).Description; got != c.want {
+		if got := db.Identify(elfImage(&e).window()).Description; got != c.want {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
 		}
 	}

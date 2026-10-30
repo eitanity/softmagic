@@ -26,13 +26,14 @@ import (
 // writes each corpus entry out as the files the two programs are given.
 
 // diffCase is one comparison: the file, data and then zeros up to size
-// bytes; the rules it is identified with, unless stock, when it is the
+// bytes or else file; the rules it is identified with, unless stock, when it is the
 // stock database; flags for both programs; and a suffix that tells the
 // cases one entry gives apart.
 type diffCase struct {
 	suffix string
 	rules  string
 	data   []byte
+	file   *blockFile
 	flags  []string
 	size   int64
 	stock  bool
@@ -171,7 +172,7 @@ func elfSeedArgs() [][]any {
 
 func diffELF(args []any) ([]diffCase, bool) {
 	e, ok := elfFromArgs(args)
-	return []diffCase{{data: elfImage(&e), size: int64(e.fileSize), stock: true}}, ok
+	return []diffCase{{file: elfImage(&e), stock: true}}, ok
 }
 
 // cdfSeedArgs are FuzzCDF's seed arguments: cdfSeeds, and the first
@@ -186,7 +187,7 @@ func cdfSeedArgs() [][]any {
 
 func diffCDF(args []any) ([]diffCase, bool) {
 	c, ok := cdfFromArgs(args)
-	return []diffCase{{data: cdfImage(&c), size: int64(c.fileSize), stock: true}}, ok
+	return []diffCase{{file: cdfImage(&c), stock: true}}, ok
 }
 
 func diffDER(args []any) ([]diffCase, bool) {
@@ -357,26 +358,30 @@ func writeDiffCase(out *os.Root, dir string, c diffCase) error {
 			return err
 		}
 	}
-	return writeSparse(out, dir+"/input", c.data, max(c.size, int64(len(c.data))))
+	file := c.file
+	if file == nil {
+		file = bytesFile(c.data)
+		file.size = max(c.size, file.size)
+	}
+	return writeSparse(out, dir+"/input", file)
 }
 
-// writeSparse writes data and extends the file to size bytes with a
-// hole, skipping the blocks of data that are all zeros, so a header
-// that claims gigabytes takes no space.
-func writeSparse(out *os.Root, path string, data []byte, size int64) error {
+// writeSparse writes the file's blocks that are not all zeros and
+// extends it to its size with a hole, so a header that claims gigabytes
+// takes no space.
+func writeSparse(out *os.Root, path string, file *blockFile) error {
 	f, err := out.Create(path)
 	if err != nil {
 		return err
 	}
-	const block = 4096
-	for off := 0; off < len(data) && err == nil; off += block {
-		b := data[off:min(off+block, len(data))]
-		if len(bytes.Trim(b, "\x00")) > 0 {
-			_, err = f.WriteAt(b, int64(off))
+	for _, k := range file.written() {
+		b := file.blocks[k][:min(fileBlock, file.size-k*fileBlock)]
+		if err == nil && len(bytes.Trim(b, "\x00")) > 0 {
+			_, err = f.WriteAt(b, k*fileBlock)
 		}
 	}
 	if err == nil {
-		err = f.Truncate(size)
+		err = f.Truncate(file.size)
 	}
 	return errors.Join(err, f.Close())
 }

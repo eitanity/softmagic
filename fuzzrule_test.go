@@ -340,7 +340,7 @@ func FuzzRule(f *testing.F) {
 		if db == nil {
 			return
 		}
-		fuzzStructured(t, db, input, int64(len(input)))
+		fuzzStructured(t, db, bytesFile(input))
 		if r.framed() {
 			fuzzIndirectFrame(t, text, input)
 		}
