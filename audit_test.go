@@ -34,17 +34,17 @@ func auditCases() []auditCase {
 	const exec = elf + "executable, x86-64, version 1 (SYSV), "
 	const date = "0\tleqdate\tx\tdate %s\n"
 	return []auditCase{
-		{ticket: "SOF-11", open: true, entry: "elf-note-offset-negative",
+		{ticket: "SOF-11", entry: "elf-note-offset-negative",
 			want: exec + "no program header, can't read elf note at -16"},
-		{ticket: "SOF-11", open: true, entry: "elf-shoff-negative",
+		{ticket: "SOF-11", entry: "elf-shoff-negative",
 			want: exec + "no program header, too large section header offset 4198400"},
-		{ticket: "SOF-11", open: true, entry: "elf-core-note-negative",
+		{ticket: "SOF-11", entry: "elf-core-note-negative",
 			want: elf + "core file, x86-64, version 1 (SYSV) can't read note section at -256"},
-		{ticket: "SOF-11", open: true, entry: "elf-section-offset-negative",
+		{ticket: "SOF-11", entry: "elf-section-offset-negative",
 			want: exec + "can't read section at -256, no section header"},
-		{ticket: "SOF-11", open: true, entry: "elf-core-auxv-wrap",
+		{ticket: "SOF-11", entry: "elf-core-auxv-wrap",
 			want: elf + "core file, x86-64, version 1 (SYSV), SVR4-style, execfn: '/bin/evil'"},
-		{ticket: "SOF-11", open: true, entry: "elf-phoff-negative",
+		{ticket: "SOF-11", entry: "elf-phoff-negative",
 			want: exec + "can't read elf program headers at -256, no section header"},
 		{ticket: "SOF-14", open: true, entry: "elf-note-past-end", want: exec + "no program header, stripped"},
 		{ticket: "SOF-15", open: true, entry: "elf-debug-info-last",

@@ -256,10 +256,6 @@ type phdrState struct {
 // phdrExec is dophn_exec: linking, interpreter and notes from the program
 // headers.
 func (e *elfState) phdrExec(off int64, num, size int, haveSections bool) {
-	if !invariant.Check(off >= 0, "program header offset non-negative") {
-		e.s.truncate(TruncInvariant)
-		return
-	}
 	if num == 0 {
 		e.printf(", no program header")
 		return
@@ -293,7 +289,7 @@ func (e *elfState) phdrEntry(st *phdrState, ph *elfPhdr, haveSections bool) bool
 	}
 	switch ph.typ {
 	case ptDynamic:
-		data, ok := e.readSegment(ph)
+		data, ok := e.readSegment(ph, ", can't read section at ")
 		if !ok {
 			return false
 		}
@@ -308,13 +304,13 @@ func (e *elfState) phdrEntry(st *phdrState, ph *elfPhdr, haveSections bool) bool
 			e.printf(", invalid note alignment 0x" + strconv.FormatUint(value(align), 16))
 			align = 4
 		}
-		data, ok := e.readSegment(ph)
+		data, ok := e.readSegment(ph, ", can't read section at ")
 		if !ok {
 			return false
 		}
 		e.notes(data, clampInt(align, 1<<30))
 	case ptInterp:
-		data, ok := e.readSegment(ph)
+		data, ok := e.readSegment(ph, ", can't read section at ")
 		if !ok {
 			return false
 		}
@@ -326,12 +322,13 @@ func (e *elfState) phdrEntry(st *phdrState, ph *elfPhdr, haveSections bool) bool
 }
 
 // readSegment reads up to NBUFSIZE bytes of a segment, short at the end
-// of the input as pread would be.
-func (e *elfState) readSegment(ph *elfPhdr) ([]byte, bool) {
+// of the input as pread would be; a failed read prints failed and the
+// offset, as signed as the reference's off_t.
+func (e *elfState) readSegment(ph *elfPhdr, failed string) ([]byte, bool) {
 	n := clampInt(ph.filesz, elfNbufSize)
 	data, ok := e.s.readUpTo(offInt(ph.offset), n)
 	if !ok {
-		e.printf(", can't read section at " + strconv.FormatUint(value(ph.offset), 10))
+		e.printf(failed + strconv.FormatInt(offInt(ph.offset), 10))
 		return nil, false
 	}
 	return data, true
@@ -414,7 +411,7 @@ func (e *elfState) phdrCore(off int64, num, size int) {
 		if ph.typ != ptNote {
 			continue
 		}
-		data, ok := e.readSegment(&ph)
+		data, ok := e.readSegment(&ph, " can't read note section at ") // no comma, as in file 5.48
 		if !ok {
 			return
 		}
@@ -547,7 +544,7 @@ func (e *elfState) noteSection(sh *elfShdr) bool { // sectionHeader
 	}
 	data, ok := e.s.readAt(offInt(sh.offset), clampInt(sh.size, elfShsizeMax))
 	if !ok {
-		e.printf(", can't read elf note at " + strconv.FormatUint(value(sh.offset), 10))
+		e.printf(", can't read elf note at " + strconv.FormatInt(offInt(sh.offset), 10))
 		return false
 	}
 	e.notes(data, 4)

@@ -627,6 +627,12 @@ func (e *elfState) capSection(st *shdrState, sh *elfShdr) bool { // sectionState
 	if st.nbadcap > 5 {
 		return true
 	}
+	if offInt(sh.offset) < 0 {
+		// The reference seeks to the section, and lseek refuses a
+		// negative offset with EINVAL.
+		e.s.abortWith(TruncELF, "error seeking (Invalid argument)")
+		return false
+	}
 	size := 8
 	if e.class == elfClass64 {
 		size = 16

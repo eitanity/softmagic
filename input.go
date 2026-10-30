@@ -110,9 +110,11 @@ func inWrapAdd[T in16 | in32 | in64](a, b T) T { return a + b }
 // inWrapSub is a - b in C's unsigned arithmetic, likewise.
 func inWrapSub[T in16 | in32 | in64](a, b T) T { return a - b }
 
-// offInt is the reference's off_t cast of a file offset or size: a value
-// past the signed range cannot be read and is clamped, not wrapped.
-func offInt(v in64) int64 { return inInt64(v) }
+// offInt is the reference's off_t cast of a file offset or size: the bit
+// pattern as two's complement, so a value of 2^63 or more is negative, as
+// file 5.48 compares, sums and prints it. readAt and readUpTo refuse a
+// negative offset.
+func offInt(v in64) int64 { return int64FromBits(uint64(v)) }
 
 // clampInt narrows a size to int within a limit.
 func clampInt(v in64, limit int) int {

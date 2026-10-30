@@ -6,6 +6,7 @@ package softmagic
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"math"
 	"os"
 	"testing"
@@ -99,5 +100,35 @@ func TestELFReadPastEnd(t *testing.T) {
 		if got := db.Identify(elfImage(&e).window()).Description; got != c.want {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
 		}
+	}
+}
+
+// TestELFCapabilityNegativeOffset: a capability section whose offset is
+// 2^63 or more is a negative off_t, which file 5.48 passes to lseek; the
+// seek fails with EINVAL and the run stops with file's error. The input
+// is the static sample with its first PROGBITS section made SHT_SUNW_cap
+// at offset 0xffffffffffffff00.
+func TestELFCapabilityNegativeOffset(t *testing.T) {
+	db := compileMagdir(t) // database
+	data, err := os.ReadFile("testdata/corpus/sample-elf-static.testfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shoff, shnum := binary.LittleEndian.Uint64(data[40:]), int(binary.LittleEndian.Uint16(data[60:]))
+	for i := 1; i < shnum; i++ {
+		sh := data[shoff+uint64(64*i):]
+		if binary.LittleEndian.Uint32(sh[4:]) == 1 {
+			binary.LittleEndian.PutUint32(sh[4:], 0x6ffffff5)
+			binary.LittleEndian.PutUint64(sh[24:], 0xffffffffffffff00)
+			break
+		}
+	}
+	r := db.Identify(data)
+	const want = ", statically linked, BuildID[sha1]=6e6af187f06c775e0d2166cb8bac43445c61749b error seeking (Invalid argument)"
+	if got := r.Failures.Description.Text(""); got != want {
+		t.Errorf("failure %q\nwant %q", got, want)
+	}
+	if r.Examined.Truncated != TruncELF {
+		t.Errorf("truncated %q", r.Examined.Truncated)
 	}
 }
