@@ -49,7 +49,7 @@ func auditCases() []auditCase {
 		{ticket: "SOF-14", open: true, entry: "elf-note-past-end", want: exec + "no program header, stripped"},
 		{ticket: "SOF-15", open: true, entry: "elf-debug-info-last",
 			want: elf + "relocatable, x86-64, version 1 (SYSV), stripped"},
-		{ticket: "SOF-12", open: true, input: "0\x03\x02\x01\x05\x00\x00\x00", want: "A B C2",
+		{ticket: "SOF-12", input: "0\x03\x02\x01\x05\x00\x00\x00", want: "A B C2",
 			rules: "0\tstring\t\\x30\\x03\tA\n>&0xfffffffe\tder\tseq\tB\n>>&0\tbyte\tx\tD%d\n>&0\tbyte\tx\tC%d\n"},
 		{ticket: "SOF-8", rules: date, input: "\x00\x00\x00\x00\x00\x00\x00\x80", want: "date *Invalid datetime*"},
 		{ticket: "SOF-8", rules: date, input: "\x00\x00\x00\x00\x00\x00\x00\xff", want: "date *Invalid datetime*"},

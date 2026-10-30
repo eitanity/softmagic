@@ -137,7 +137,9 @@ func (s *scan) derOffs(m *record, f *frame) (int32, bool) { // frame
 	if tlen == derBad {
 		return 0, false
 	}
-	offs := int64(p) + int64(s.offset) + int64(m.offset)
+	// file 5.48 adds the rule's offset to the current one in uint32, so a
+	// negative rule offset wraps past 4 GiB instead of stepping back.
+	offs := int64(p) + int64(s.offset+bitsOfInt32(m.offset))
 	if m.contLevel != 0 {
 		if offs+int64(tlen) > int64(f.n) {
 			return 0, false

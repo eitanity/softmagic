@@ -39,6 +39,28 @@ func TestRangesPastInt32(t *testing.T) {
 	}
 }
 
+// TestDERNegativeRuleOffset: a der line's offset is added to the current
+// one in uint32, so a sum below 0 wraps past the input and the line fails,
+// while a negative offset that stays at or above 0 steps back. The answers
+// are file 5.48's.
+func TestDERNegativeRuleOffset(t *testing.T) {
+	const kids = ">>&0\tbyte\tx\tD%d\n>&0\tbyte\tx\tC%d\n"
+	for _, c := range []struct{ name, rules, input, want string }{ // derOffsetCase
+		{"sum below 0", "0\tstring\t\\x30\\x03\tA\n>&0xfffffffe\tder\tseq\tB\n" + kids, "0\x03\x02\x01\x05\x00\x00\x00", "A B C2"},
+		{"sum below 0, &--2", "0\tstring\t\\x30\\x03\tA\n>&--2\tder\tseq\tB\n" + kids, "0\x03\x02\x01\x05\x00\x00\x00", "A C2"},
+		{"sum of 1", "0\tstring\t\\x30\\x03\tA\n>&-1\tder\tseq\tB\n" + kids, "0\x030\x01\x05\x00\x00\x00", "A C48"},
+		{"sum of -1, no children", "0\tstring\tXX\tA\n>&--3\tder\tseq\tB\n", "XX0\x01\x05\x00\x00\x00", "A"},
+	} {
+		db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(c.rules)}}, CompileOptions{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := db.Identify([]byte(c.input)).Description; got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // TestLoadEntryTableWrap: an entry table whose first+count passes
 // MaxInt32 is refused, not followed to a negative record index.
 func TestLoadEntryTableWrap(t *testing.T) {
