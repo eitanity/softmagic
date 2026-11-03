@@ -120,9 +120,13 @@ func derData(buf []byte, tag uint32, d []byte) []byte { // elementValue
 
 // derOffs is der_offs: the offset of the element's value, with the parent
 // level's continuation offset moved past the element so siblings follow.
+//
+// A "!" der line whose indirect offset cannot be read counts as matched
+// without setting a region. It then uses the region an earlier der or
+// search line left, as file does; with none, file reads a null pointer
+// and crashes, and here the offset fails as a bad element's does.
 func (s *scan) derOffs(m *record, f *frame) (int32, bool) { // frame
-	if !invariant.Check(s.search.valid, "der region set") {
-		s.truncate(TruncInvariant)
+	if !s.search.valid {
 		return 0, false
 	}
 	b := s.buf[s.search.start : s.search.start+s.search.length] // searchRegion

@@ -61,6 +61,27 @@ func TestDERNegativeRuleOffset(t *testing.T) {
 	}
 }
 
+// TestDERUnreadNegated: a "!" der line whose indirect offset is past the
+// input matches without reading, so no line may have set a region. With
+// one from an earlier der line the answer is file's ("A S B"); with none,
+// file crashes, and here the line prints and its offset fails.
+func TestDERUnreadNegated(t *testing.T) {
+	for _, c := range []struct{ name, rules, want string }{ // derUnreadCase
+		{"no region", "0\tstring\tXX\tA\n>(100.l)\tder\t!seq\tB\n>>&0\tbyte\tx\tC%d\n", "A B"},
+		{"no region, top level", "(100.l)\tder\t!seq\tB\n>&0\tbyte\tx\tC%d\n", "B"},
+		{"earlier region", "0\tstring\tXX\tA\n>2\tder\tseq\tS\n>(100.l)\tder\t!seq\tB\n>>&0\tbyte\tx\tC%d\n", "A S B"},
+	} {
+		db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(c.rules)}}, CompileOptions{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		r := db.Identify([]byte("XX0\x01\x05\x00\x00\x00"))
+		if r.Description != c.want || r.Examined.Truncated != "" {
+			t.Errorf("%s: %q, truncated %q, want %q", c.name, r.Description, r.Examined.Truncated, c.want)
+		}
+	}
+}
+
 // TestLoadEntryTableWrap: an entry table whose first+count passes
 // MaxInt32 is refused, not followed to a negative record index.
 func TestLoadEntryTableWrap(t *testing.T) {
