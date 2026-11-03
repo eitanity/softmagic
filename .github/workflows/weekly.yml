@@ -30,8 +30,11 @@ jobs:
           for q in s390x ppc64 mips aarch64; do
             test -e /proc/sys/fs/binfmt_misc/qemu-$q || { echo "qemu-$q not registered"; exit 1; }
           done
+      # Not -short, which would shrink the 32-bit large-window test; only the
+      # load-time limit is skipped, since it measures the shared runner (the
+      # push CI checks it on amd64).
       - name: 386, assertions
-        run: GOARCH=386 go test -tags softmagic_assert -count=1 ./...
+        run: GOARCH=386 go test -tags softmagic_assert -count=1 -skip '^TestLoadTime$' ./...
       - name: s390x, ppc64, mips and arm64 under qemu, assertions
         run: make emulated EMULATED="s390x ppc64 mips arm64"
 
