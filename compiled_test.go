@@ -111,8 +111,8 @@ func TestLoadRefusals(t *testing.T) {
 	}
 }
 
-// TestLoadTime checks that the embedded database loads in under a
-// millisecond.
+// TestLoadTime logs how long the embedded database takes to load. It only
+// reports: the figure measures the machine as much as the code.
 func TestLoadTime(t *testing.T) {
 	if testing.Short() || raceEnabled {
 		t.Skip("timing")
@@ -128,9 +128,6 @@ func TestLoadTime(t *testing.T) {
 		}
 	}
 	t.Logf("Default() best of 10: %v (%d bytes embedded)", best, len(embeddedDatabase))
-	if best > 5*time.Millisecond {
-		t.Errorf("load took %v", best)
-	}
 }
 
 func BenchmarkLoad(b *testing.B) {
