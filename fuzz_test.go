@@ -220,10 +220,13 @@ func fuzzSafeASCII(t *testing.T, r Result) {
 
 // fuzzAllocBudget is the most one call may allocate: the largest buffer
 // the library reads into (a CDF chain at cdfChainLimit) with room for the
-// rest of a scan. fuzzTimeBudget is the most one call may take.
+// rest of a scan. fuzzTimeBudget is the most one call may take. It catches
+// a call that hangs or whose cost grows without bound, not a slow machine:
+// the slowest seeds take 0.1 s on their own, but up to 3 s on a 4-CPU CI
+// runner under fuzzing's coverage instrumentation or the race detector.
 const (
 	fuzzAllocBudget = 64 << 20
-	fuzzTimeBudget  = 2 * time.Second
+	fuzzTimeBudget  = 10 * time.Second
 )
 
 // heapAllocated is the bytes the process has allocated so far. Small
@@ -267,6 +270,8 @@ func fuzzHeld(t *testing.T, db *Database, data []byte, held ...Result) { // data
 	ctx := context.Background()
 	fuzzBounded(t, "Identify with other input", func() {
 		db.IdentifyWith(ctx, other, Options{Continue: true})
+	})
+	fuzzBounded(t, "IdentifyAt with other input", func() {
 		db.IdentifyAt(ctx, bytes.NewReader(other), int64(len(other)), Options{Continue: true, Raw: true})
 	})
 	for i := range held {
