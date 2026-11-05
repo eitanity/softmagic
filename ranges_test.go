@@ -63,8 +63,8 @@ func TestDERNegativeRuleOffset(t *testing.T) {
 
 // TestDERUnreadNegated: a "!" der line whose indirect offset is past the
 // input matches without reading, so no line may have set a region. With
-// one from an earlier der line the answer is file's ("A S B"); with none,
-// file crashes, and here the line prints and its offset fails.
+// one from an earlier der line or none, the answers are file 5.48's: the
+// line prints, and with no region its offset fails.
 func TestDERUnreadNegated(t *testing.T) {
 	for _, c := range []struct{ name, rules, want string }{ // derUnreadCase
 		{"no region", "0\tstring\tXX\tA\n>(100.l)\tder\t!seq\tB\n>>&0\tbyte\tx\tC%d\n", "A B"},
@@ -85,8 +85,8 @@ func TestDERUnreadNegated(t *testing.T) {
 // TestUnreadNegatedRegion: a "!" regex or search line whose indirect
 // offset is past the input matches without reading and uses whatever
 // region an earlier line left, in this window or in the binary pass
-// before the text pass. The answers are file's (5.46, whose der, regex
-// and search paths are those of 5.48), with and without -k.
+// before the text pass. The answers are file 5.48's, with and without -k;
+// with no region at all, a regex line prints nothing after its separator.
 func TestUnreadNegatedRegion(t *testing.T) {
 	const kid = ">>&0\tbyte\tx\tC%d\n"
 	const textTail = ", Unicode text, UTF-16, little-endian text"
@@ -100,7 +100,7 @@ func TestUnreadNegatedRegion(t *testing.T) {
 		input             []byte
 		cont              bool
 	}{
-		{"no region, regex", "0\tstring/t\th\tT\n>(200.l)\tregex\t!x\tRX[%s]\n", "T RX[]" + textTail, utf16, false},
+		{"no region, regex", "0\tstring/t\th\tT\n>(200.l)\tregex\t!x\tRX[%s]\n", "T " + textTail, utf16, false},
 		{"binary region, regex", "20\tsearch/1\tQ\tnever\n0\tstring/t\th\tT\n>(200.l)\tregex\t!x\tRX[%s]\n" + kid, "T RX[] C105" + textTail, utf16, false},
 		{"binary region, regex, -k", "20\tsearch/1\tQ\tnever\n0\tstring/t\th\tT\n>(200.l)\tregex\t!x\tRX[%s]\n" + kid, "T RX[] C105" + textTail, utf16, true},
 		{"binary region, search", "20\tsearch/1\tQ\tnever\n0\tstring/t\th\tT\n>(200.l)\tsearch/4\t!x\tSX[%s]\n" + kid, "T SX[] C115" + textTail, utf16, false},

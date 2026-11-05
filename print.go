@@ -162,8 +162,7 @@ func (s *scan) printString(m *record, desc string) { // rule
 func (s *scan) printSearch(m *record, desc string) { // rule
 	if !s.search.valid {
 		// A "!" line that matched without reading, with no region from an
-		// earlier line: the reference dereferences a null pointer here.
-		s.printfStr(desc, nil)
+		// earlier line: file prints nothing, after the separator.
 		return
 	}
 	if !invariant.Check(s.search.rmLen >= 0, "match length non-negative") ||
