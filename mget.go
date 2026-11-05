@@ -305,7 +305,7 @@ func (s *scan) setSearchRegion(win []byte, base int, offset uint32) {
 	if int64(offset) < int64(len(win)) {
 		off = intFromU32(offset)
 	}
-	s.search = searchState{start: base + off, length: len(win) - off, offset: off, valid: true}
+	s.search = searchState{win: s.buf, start: base + off, length: len(win) - off, offset: off, valid: true}
 }
 
 // setRegexRegion is mcopy's FILE_REGEX case: the region is bounded by the
@@ -343,7 +343,7 @@ func (s *scan) setRegexRegion(m *record, win []byte, base int, offset uint32) { 
 		linecnt = int64(len(region)) + 1
 	}
 	last := regexLineLimit(region, intFromI64(linecnt))
-	s.search = searchState{start: base + off, length: last, offset: off, valid: true}
+	s.search = searchState{win: s.buf, start: base + off, length: last, offset: off, valid: true}
 	s.noteRead(base + off + last)
 }
 

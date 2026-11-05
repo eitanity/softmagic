@@ -401,6 +401,10 @@ func (s *scan) resetOutput() {
 	s.outLen = 0
 	s.printedSomething, s.needSeparator = false, false
 	s.nframes = 0
+	// Each pass is a separate run of the reference, with a new magic_set:
+	// no search region and a zero value.
+	s.search = searchState{}
+	clear(s.value[:])
 }
 
 // winnerStrength is the strength of the entry whose text was printed

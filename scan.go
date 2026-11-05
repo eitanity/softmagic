@@ -270,13 +270,13 @@ type scan struct {
 	tail             []byte    // tailBuf's part read for this call
 	cdfbuf           [4][]byte // the CDF built-in's tables and streams, grown once
 	cdfdir           []cdfDir
+	search           searchState
 	held             int64 // capacity of srcbuf, tailBuf, cdfbuf and cdfdir, in bytes
 	memLimit         int64 // Options.MaxMemory resolved
 	srcSize          int64
 	frames           [maxFrames]frame
 	lim              limits
 	memo             [memoSize]memoEntry
-	search           searchState
 	indir            int
 	outLen           int
 	nseps            int // separators recorded in seps
@@ -317,8 +317,12 @@ type scan struct {
 }
 
 // searchState is the reference's ms->search: the region a search, regex
-// or der test runs over, as indices into scan.buf.
+// or der test runs over, as indices into win, the buffer it was set in.
+// A "!" line that matched without reading uses the region an earlier line
+// left, which may be in another window: the reference's pointer still
+// reads the input there, so the region keeps its buffer.
 type searchState struct {
+	win    []byte
 	start  int // ms->search.s
 	length int // ms->search.s_len
 	offset int // ms->search.offset
@@ -356,6 +360,7 @@ func (sp *scanPool) get(db *Database, ctx context.Context, buf []byte, o Options
 
 func (sp *scanPool) put(s *scan) {
 	s.db, s.buf, s.savedBuf, s.ctx, s.src = nil, nil, nil, nil, nil
+	s.search = searchState{} // its buffer may be the caller's
 	if s.held > poolKeepBytes {
 		s.srcbuf, s.tailBuf, s.tail, s.cdfdir = nil, nil, nil, nil
 		s.cdfbuf = [4][]byte{}

@@ -160,19 +160,22 @@ func (s *scan) printString(m *record, desc string) { // rule
 
 // printSearch prints the bytes a search or regex matched.
 func (s *scan) printSearch(m *record, desc string) { // rule
+	if !s.search.valid {
+		// A "!" line that matched without reading, with no region from an
+		// earlier line: the reference dereferences a null pointer here.
+		s.printfStr(desc, nil)
+		return
+	}
 	if !invariant.Check(s.search.rmLen >= 0, "match length non-negative") ||
-		!invariant.Check(s.search.start <= len(s.buf), "search start within the buffer") {
+		!invariant.Check(s.search.start <= len(s.search.win), "search start within its buffer") {
 		s.truncate(TruncInvariant)
 		return
 	}
-	if !s.search.valid {
-		return
-	}
 	end := s.search.start + s.search.rmLen
-	if end > len(s.buf) {
-		end = len(s.buf)
+	if end > len(s.search.win) {
+		end = len(s.search.win)
 	}
-	str := s.buf[s.search.start:end]
+	str := s.search.win[s.search.start:end]
 	if nul := indexByteFrom(str, 0, 0); nul >= 0 {
 		str = str[:nul] // strndup stops at a NUL
 	}

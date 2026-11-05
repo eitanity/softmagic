@@ -82,6 +82,43 @@ func TestDERUnreadNegated(t *testing.T) {
 	}
 }
 
+// TestUnreadNegatedRegion: a "!" regex or search line whose indirect
+// offset is past the input matches without reading and uses whatever
+// region an earlier line left, in this window or in the binary pass
+// before the text pass. The answers are file's (5.46, whose der, regex
+// and search paths are those of 5.48), with and without -k.
+func TestUnreadNegatedRegion(t *testing.T) {
+	const kid = ">>&0\tbyte\tx\tC%d\n"
+	const textTail = ", Unicode text, UTF-16, little-endian text"
+	utf16 := []byte{0xff, 0xfe}
+	for _, c := range []byte("hello 0 world, this is a long enough utf-16 text line\n") {
+		utf16 = append(utf16, c, 0)
+	}
+	ascii := []byte("hello world, this is a long enough ascii text line\n")
+	for _, c := range []struct { // unreadRegionCase
+		name, rules, want string
+		input             []byte
+		cont              bool
+	}{
+		{"no region, regex", "0\tstring/t\th\tT\n>(200.l)\tregex\t!x\tRX[%s]\n", "T RX[]" + textTail, utf16, false},
+		{"binary region, regex", "20\tsearch/1\tQ\tnever\n0\tstring/t\th\tT\n>(200.l)\tregex\t!x\tRX[%s]\n" + kid, "T RX[] C105" + textTail, utf16, false},
+		{"binary region, regex, -k", "20\tsearch/1\tQ\tnever\n0\tstring/t\th\tT\n>(200.l)\tregex\t!x\tRX[%s]\n" + kid, "T RX[] C105" + textTail, utf16, true},
+		{"binary region, search", "20\tsearch/1\tQ\tnever\n0\tstring/t\th\tT\n>(200.l)\tsearch/4\t!x\tSX[%s]\n" + kid, "T SX[] C115" + textTail, utf16, false},
+		{"binary region, search, -k", "20\tsearch/1\tQ\tnever\n0\tstring/t\th\tT\n>(200.l)\tsearch/4\t!x\tSX[%s]\n" + kid, "T SX[] C115" + textTail, utf16, true},
+		{"binary region, der", "20\tsearch/1\tQ\tnever\n0\tstring/t\th\tT\n>(200.l)\tder\t!seq\tD\n" + kid, "T D" + textTail, utf16, false},
+		{"same window, regex", "0\tstring/t\th\tT\n>0\tregex\tw..ld\tW[%s]\n>(200.l)\tregex\t!x\tRX[%s]\n" + kid, "T W[world] RX[world] C44, ASCII text", ascii, false},
+	} {
+		db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(c.rules)}}, CompileOptions{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		r := db.IdentifyWith(t.Context(), c.input, Options{Continue: c.cont})
+		if r.Description != c.want || r.Examined.Truncated != "" {
+			t.Errorf("%s: %q, truncated %q, want %q", c.name, r.Description, r.Examined.Truncated, c.want)
+		}
+	}
+}
+
 // TestLoadEntryTableWrap: an entry table whose first+count passes
 // MaxInt32 is refused, not followed to a negative record index.
 func TestLoadEntryTableWrap(t *testing.T) {

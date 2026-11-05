@@ -126,12 +126,12 @@ func derData(buf []byte, tag uint32, d []byte) []byte { // elementValue
 // search line left, as file does; with none, file reads a null pointer
 // and crashes, and here the offset fails as a bad element's does.
 func (s *scan) derOffs(m *record, f *frame) (int32, bool) { // frame
-	if !s.search.valid {
+	b, ok := s.derRegion() // searchRegion
+	if !ok {
 		return 0, false
 	}
-	b := s.buf[s.search.start : s.search.start+s.search.length] // searchRegion
 	if s.search.length == 0 {
-		b = s.buf[s.search.start:]
+		b = s.search.win[s.search.start:]
 	}
 	p := 0 // cursor
 	if derTag(b, &p) == derBad {
@@ -153,17 +153,30 @@ func (s *scan) derOffs(m *record, f *frame) (int32, bool) { // frame
 	return wrapInt32(offs), true
 }
 
+// derRegion is the search region a der line reads, in the buffer it was
+// set in; false when no line has set one.
+func (s *scan) derRegion() ([]byte, bool) {
+	if !s.search.valid {
+		return nil, false
+	}
+	if !invariant.Check(s.search.start >= 0 && s.search.start+s.search.length <= len(s.search.win), "der region within its buffer") {
+		s.truncate(TruncInvariant)
+		return nil, false
+	}
+	return s.search.win[s.search.start : s.search.start+s.search.length], true
+}
+
 // derCmp is der_cmp: match the element against the rule's "tag[len][=data]".
 func (s *scan) derCmp(m *record) bool { // rule
 	if !invariant.Check(m.typ == tDer, "der line") {
 		s.truncate(TruncInvariant)
 		return false
 	}
-	if !s.search.valid {
+	b, ok := s.derRegion() // searchRegion
+	if !ok {
 		return false
 	}
-	b := s.buf[s.search.start : s.search.start+s.search.length] // searchRegion
-	p := 0                                                      // cursor
+	p := 0 // cursor
 	tag := derTag(b, &p)
 	if tag == derBad {
 		return false
