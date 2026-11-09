@@ -11,18 +11,16 @@ import (
 	"testing/fstest"
 )
 
-// auditCase is one input the 2026-10-22 audit built, with file 5.48's
-// answer to it. The input is a FuzzIdentify corpus entry, read with the
-// stock rules, or input itself, read with rules. A case whose ticket is
-// still open is expected to differ from file and fails once it does not,
-// so that whoever fixes the ticket makes the case a plain check.
+// auditCase is one input the 2026-10-22 audit built, with the right
+// answer to it: file 5.48's, except where file is wrong, as each such
+// case says. The input is a FuzzIdentify corpus entry, read with the
+// stock rules, or input itself, read with rules.
 type auditCase struct {
-	ticket string
-	entry  string // under testdata/fuzz/FuzzIdentify
-	rules  string
-	input  string
-	want   string
-	open   bool
+	what  string // the defect the input reaches
+	entry string // under testdata/fuzz/FuzzIdentify
+	rules string
+	input string
+	want  string
 }
 
 // auditCases are the audit's inputs not already checked elsewhere: the
@@ -34,33 +32,44 @@ func auditCases() []auditCase {
 	const exec = elf + "executable, x86-64, version 1 (SYSV), "
 	const date = "0\tleqdate\tx\tdate %s\n"
 	return []auditCase{
-		{ticket: "SOF-11", entry: "elf-note-offset-negative",
+		{what: "ELF offset at or past 2^63", entry: "elf-note-offset-negative",
 			want: exec + "no program header, can't read elf note at -16"},
-		{ticket: "SOF-11", entry: "elf-shoff-negative",
+		{what: "ELF offset at or past 2^63", entry: "elf-shoff-negative",
 			want: exec + "no program header, too large section header offset 4198400"},
-		{ticket: "SOF-11", entry: "elf-core-note-negative",
+		{what: "ELF offset at or past 2^63", entry: "elf-core-note-negative",
 			want: elf + "core file, x86-64, version 1 (SYSV) can't read note section at -256"},
-		{ticket: "SOF-11", entry: "elf-section-offset-negative",
+		{what: "ELF offset at or past 2^63", entry: "elf-section-offset-negative",
 			want: exec + "can't read section at -256, no section header"},
-		{ticket: "SOF-11", entry: "elf-core-auxv-wrap",
+		{what: "ELF offset at or past 2^63", entry: "elf-core-auxv-wrap",
 			want: elf + "core file, x86-64, version 1 (SYSV), SVR4-style, execfn: '/bin/evil'"},
-		{ticket: "SOF-11", entry: "elf-phoff-negative",
+		{what: "ELF offset at or past 2^63", entry: "elf-phoff-negative",
 			want: exec + "can't read elf program headers at -256, no section header"},
-		{ticket: "SOF-14", open: true, entry: "elf-note-past-end", want: exec + "no program header, stripped"},
-		{ticket: "SOF-15", open: true, entry: "elf-debug-info-last",
-			want: elf + "relocatable, x86-64, version 1 (SYSV), stripped"},
-		{ticket: "SOF-12", input: "0\x03\x02\x01\x05\x00\x00\x00", want: "A B C2",
+		// file skips a note section that starts past the end of the file
+		// without a word, though it reports one that runs past the end;
+		// here both are reported.
+		{what: "note section past the end of the file", entry: "elf-note-past-end",
+			want: exec + "no program header, note offset/size 0x10000+0x10 exceeds file size 0x200"},
+		// file tests each section header against the previous header's
+		// name, so it never sees a last section named .debug_info and says
+		// "stripped"; here each section's own name is tested.
+		{what: "last section named .debug_info", entry: "elf-debug-info-last",
+			want: elf + "relocatable, x86-64, version 1 (SYSV), with debug_info, not stripped"},
+		// The same sections with .debug_info first, where file sees it too:
+		// both answers agree.
+		{what: "first section named .debug_info", entry: "elf-debug-info-first",
+			want: elf + "relocatable, x86-64, version 1 (SYSV), with debug_info, not stripped"},
+		{what: "der at a negative relative offset", input: "0\x03\x02\x01\x05\x00\x00\x00", want: "A B C2",
 			rules: "0\tstring\t\\x30\\x03\tA\n>&0xfffffffe\tder\tseq\tB\n>>&0\tbyte\tx\tD%d\n>&0\tbyte\tx\tC%d\n"},
-		{ticket: "SOF-8", rules: date, input: "\x00\x00\x00\x00\x00\x00\x00\x80", want: "date *Invalid datetime*"},
-		{ticket: "SOF-8", rules: date, input: "\x00\x00\x00\x00\x00\x00\x00\xff", want: "date *Invalid datetime*"},
-		{ticket: "SOF-8", rules: date, input: "\x00\x77\x0b\x2f\xea\xff\xff\xff", want: "date *Invalid datetime*"},
-		{ticket: "SOF-8", rules: date, input: "\x00\xd9\x9b\xdd\xf8\xff\xff\xff", want: "date Tue Jan  1 00:00:00 999"},
-		{ticket: "SOF-8", rules: date, input: "\x00\xf1\x53\x65\x00\x00\x00\x00", want: "date Tue Nov 14 22:13:20 2023"},
-		{ticket: "SOF-10", rules: "0\tpstring/J\tx\tPS[%s]\n", input: "abcdefgh hello world\nline2\n",
+		{what: "64-bit date out of range", rules: date, input: "\x00\x00\x00\x00\x00\x00\x00\x80", want: "date *Invalid datetime*"},
+		{what: "64-bit date out of range", rules: date, input: "\x00\x00\x00\x00\x00\x00\x00\xff", want: "date *Invalid datetime*"},
+		{what: "64-bit date out of range", rules: date, input: "\x00\x77\x0b\x2f\xea\xff\xff\xff", want: "date *Invalid datetime*"},
+		{what: "64-bit date out of range", rules: date, input: "\x00\xd9\x9b\xdd\xf8\xff\xff\xff", want: "date Tue Jan  1 00:00:00 999"},
+		{what: "64-bit date out of range", rules: date, input: "\x00\xf1\x53\x65\x00\x00\x00\x00", want: "date Tue Nov 14 22:13:20 2023"},
+		{what: "pstring/J length below its prefix", rules: "0\tpstring/J\tx\tPS[%s]\n", input: "abcdefgh hello world\nline2\n",
 			want: "PS[bcdefgh hello world]"},
-		{ticket: "SOF-10", rules: "0\tpstring/LJ\tx\tPS[%s]\n", input: "\x00\x00\x00\x03abcdefgh hello world\nline2\n",
+		{what: "pstring/J length below its prefix", rules: "0\tpstring/LJ\tx\tPS[%s]\n", input: "\x00\x00\x00\x03abcdefgh hello world\nline2\n",
 			want: "data"},
-		{ticket: "SOF-4", rules: "0\tlong\tx\n>(0.L*0x7fffffff)\tbyte\tx\tIND\n",
+		{what: "indirect offset multiplied past 32 bits", rules: "0\tlong\tx\n>(0.L*0x7fffffff)\tbyte\tx\tIND\n",
 			input: "\xff\xff\xff\xfe\x01\x02\x03\x04\x05\x06", want: "data"},
 	}
 }
@@ -70,7 +79,7 @@ func auditCases() []auditCase {
 func TestAuditReproductions(t *testing.T) {
 	stock := compileMagdir(t) // database
 	for _, c := range auditCases() {
-		name, db, data := c.ticket+" "+c.entry, stock, []byte(c.input) // database
+		name, db, data := c.what+" "+c.entry, stock, []byte(c.input) // database
 		if c.entry != "" {
 			data = auditEntry(t, c.entry)
 		} else {
@@ -82,13 +91,8 @@ func TestAuditReproductions(t *testing.T) {
 		}
 		var got string
 		fuzzBounded(t, name, func() { got = db.Identify(data).Description })
-		switch {
-		case !c.open && got != c.want:
+		if got != c.want {
 			t.Errorf("%s: %q, want %q", name, got, c.want)
-		case c.open && got == c.want:
-			t.Errorf("%s: matches file 5.48 (%q); if %s is fixed, the case is no longer open", name, got, c.ticket)
-		case c.open:
-			t.Logf("%s: open: %q, file 5.48 %q", name, got, c.want)
 		}
 	}
 }

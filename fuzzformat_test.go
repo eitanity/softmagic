@@ -274,8 +274,8 @@ const (
 )
 
 // elfSeeds are the defects the ELF reader has had, as fields: an offset
-// at or past 2^63 (SOF-11), a note section past the end of the file
-// (SOF-14), the last section named .debug_info (SOF-15), and a core
+// at or past 2^63, a note section past the end of the file, the last
+// section named .debug_info, and a core
 // file and an executable with a note and an interpreter.
 func elfSeeds() []elfFields {
 	gnuNote := []byte("\x04\x00\x00\x00\x10\x00\x00\x00\x01\x00\x00\x00GNU\x00" +
@@ -500,7 +500,7 @@ func cdfImage(f *cdfFields) *blockFile {
 // 512-byte, 4096-byte and 1 MiB sectors, one of the last with its
 // directory 1000 sectors into a 1008 MiB file, and the 1 MiB-sector
 // header whose short-sector table is a chain of 10000 sectors in a 2 MiB
-// file (SOF-1).
+// file.
 func cdfSeeds() []cdfFields {
 	title := append(binary.LittleEndian.AppendUint32(nil, 6), "Title\x00\x00\x00"...)
 	return []cdfFields{
@@ -698,7 +698,7 @@ func jpegComment(length uint16, comment []byte) []byte {
 // FuzzPString checks a length-prefixed string at every width, with /J
 // (the length counts its own prefix) and without, and the stock JPEG
 // comment rule (pstring/HJ), whose length below the prefix size once
-// went negative (SOF-10).
+// went negative.
 func FuzzPString(f *testing.F) {
 	stock, err := compileFS(os.DirFS("magic/Magdir"), CompileOptions{}) // database
 	if err != nil {

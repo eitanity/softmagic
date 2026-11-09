@@ -280,11 +280,10 @@ func ruleType(name string) uint8 {
 }
 
 // ruleSeeds are the shapes of the defects the rule paths have had: a
-// string, regex or search range of 2^31 and 2^32-1 (SOF-4), a der line
-// at a negative relative offset (SOF-12), a search in an indirect frame
-// (SOF-13), numerals past 64 bits as an offset, a range, a mask and a
-// value (SOF-16), and a 64-bit date before year -999, which the binary
-// input's first eight bytes are (SOF-8).
+// string, regex or search range of 2^31 and 2^32-1, a der line at a
+// negative relative offset, a search in an indirect frame, numerals
+// past 64 bits as an offset, a range, a mask and a value, and a 64-bit
+// date before year -999, which the binary input's first eight bytes are.
 func ruleSeeds() []ruleFields {
 	const (
 		relEq, relAny = 1, 7
