@@ -29,13 +29,16 @@ lint: vet
 # Every fuzz target for FUZZTIME on each architecture, with the assertion
 # tag and as released (where a failure is a real panic, not an assertion;
 # "release" names no tag the module uses, so it builds the default way).
-# -parallel=8 keeps the 386 harness within its address space.
+# At most 8 workers keeps the 386 harness within its address space, and
+# no more than the CPUs keeps a seed's time its own, not the queue's.
+NCPU := $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 8)
+FUZZPARALLEL ?= $(shell n=$(NCPU); [ "$$n" -lt 8 ] && echo $$n || echo 8)
 fuzz:
 	@set -e; for arch in $(FUZZARCHS); do for tags in softmagic_assert release; do \
 		for target in $(FUZZTARGETS); do \
 			echo "== $$target $$arch $$tags"; \
 			GOARCH=$$arch go test -tags $$tags -run=NONE -fuzz="^$$target\$$" \
-				-fuzztime=$(FUZZTIME) -parallel=8 .; \
+				-fuzztime=$(FUZZTIME) -parallel=$(FUZZPARALLEL) .; \
 		done; done; done
 
 # go vet for every platform the library is built for, without cgo.

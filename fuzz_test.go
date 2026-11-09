@@ -110,6 +110,14 @@ func compileSeeds() [][]any {
 		{"0 name x\n>0 use x\n"},
 		{"0 search/10 abc\n0 lelong&0xff =1 one\n>(4.l+2) ubelong x %u\n"},
 		{"0 string XY extra\n>2 use base\n"},
+		// A "!" line whose indirect offset cannot be read counts as
+		// matched and uses whatever region an earlier line left: none,
+		// one from a search, and one from a regex in the same pass.
+		{"0 string 0 T\n>(200.l) regex !x RX[%s]\n>>&0 byte x C%d\n"},
+		{"0 search/1 0 S\n>(200.l) search/4 !x SX[%s]\n>>&0 byte x C%d\n"},
+		{"0 search/1 0 S\n>(200.l) der !seq D\n>>&0 byte x C%d\n"},
+		{"0 string 0 T\n>(200.l) der !seq D\n"},
+		{"0 string 0 T\n>0 regex s.ring W[%s]\n>(200.l) regex !x RX[%s]\n>>&0 byte x C%d\n"},
 	}
 }
 

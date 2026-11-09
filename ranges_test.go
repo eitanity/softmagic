@@ -107,6 +107,11 @@ func TestUnreadNegatedRegion(t *testing.T) {
 		{"binary region, search, -k", "20\tsearch/1\tQ\tnever\n0\tstring/t\th\tT\n>(200.l)\tsearch/4\t!x\tSX[%s]\n" + kid, "T SX[] C115" + textTail, utf16, true},
 		{"binary region, der", "20\tsearch/1\tQ\tnever\n0\tstring/t\th\tT\n>(200.l)\tder\t!seq\tD\n" + kid, "T D" + textTail, utf16, false},
 		{"same window, regex", "0\tstring/t\th\tT\n>0\tregex\tw..ld\tW[%s]\n>(200.l)\tregex\t!x\tRX[%s]\n" + kid, "T W[world] RX[world] C44, ASCII text", ascii, false},
+		// The rules identifying their own text, a pass where binary rules run.
+		{"binary pass, no region, regex", "0 string 0 T\n>(200.l) regex !x RX[%s]\n>>&0 byte x C%d\n", "T  C48", []byte("0 string 0 T\n>(200.l) regex !x RX[%s]\n>>&0 byte x C%d\n"), false},
+		{"binary pass, search region", "0 search/1 0 S\n>(200.l) search/4 !x SX[%s]\n>>&0 byte x C%d\n",
+			"S SX[0 search/1 0 S\\012>(200.l) search/4 !x SX[%s]\\012>>&0 byte x C%d\\012] C32, ASCII text", []byte("0 search/1 0 S\n>(200.l) search/4 !x SX[%s]\n>>&0 byte x C%d\n"), false},
+		{"binary pass, regex region", "0 string 0 T\n>0 regex s.ring W[%s]\n>(200.l) regex !x RX[%s]\n>>&0 byte x C%d\n", "T W[string] RX[string] C32", []byte("0 string 0 T\n>0 regex s.ring W[%s]\n>(200.l) regex !x RX[%s]\n>>&0 byte x C%d\n"), false},
 	} {
 		db, err := compileFS(fstest.MapFS{"r": &fstest.MapFile{Data: []byte(c.rules)}}, CompileOptions{})
 		if err != nil {

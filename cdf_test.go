@@ -120,12 +120,19 @@ func TestPoolDropsLargeBuffers(t *testing.T) {
 
 // TestCDFDirBytes: the budget's charge per directory entry is at least
 // what an entry takes (92 bytes on 32-bit hosts, 96 on 64-bit ones), and
-// not much more.
+// not much more. The counter is the process's, which other goroutines
+// only add to, so the smallest of several runs is the table's own.
 func TestCDFDirBytes(t *testing.T) {
 	const n = 1 << 12
-	var dirs []cdfDir
-	got := allocatedBy(func() { dirs = make([]cdfDir, n) })
-	if len(dirs) != n || got > n*cdfDirBytes+8192 || got < n*(cdfDirBytes-8) {
+	got := uint64(1 << 62)
+	for range 5 {
+		var dirs []cdfDir
+		got = min(got, allocatedBy(func() { dirs = make([]cdfDir, n) }))
+		if len(dirs) != n {
+			t.Fatalf("%d entries, want %d", len(dirs), n)
+		}
+	}
+	if got > n*cdfDirBytes+8192 || got < n*(cdfDirBytes-8) {
 		t.Errorf("%d entries allocated %d bytes, charged %d", n, got, n*cdfDirBytes)
 	}
 }
